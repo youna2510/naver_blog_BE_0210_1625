@@ -10,6 +10,7 @@ from rest_framework.permissions import AllowAny  # 인증 없이 접근 가능�
 User = get_user_model()
 
 # Swagger 요청 스키마 정의
+#요청 데이터 필드
 login_request_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
@@ -20,6 +21,7 @@ login_request_schema = openapi.Schema(
 )
 
 # Swagger 응답 스키마 정의
+#응답 데이터 필드
 login_success_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
@@ -31,6 +33,7 @@ login_success_schema = openapi.Schema(
     }
 )
 
+#에러 처리
 login_error_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
@@ -40,7 +43,7 @@ login_error_schema = openapi.Schema(
 
 class LoginView(APIView):
     permission_classes = [AllowAny]  # 인증 없이 접근 가능하도록 설정
-
+    #Swagger UI에 이 API의 설명과 요청/응답 구조를 명확히 문서화
     @swagger_auto_schema(
         operation_summary="로그인",
         operation_description="사용자의 아이디와 비밀번호를 확인하여 JWT 토큰을 발급합니다.",
@@ -57,11 +60,11 @@ class LoginView(APIView):
         사용자 인증 후 JWT 토큰과 프로필 생성 여부를 반환합니다.
         """
         try:
-            data = request.data
+            data = request.data # 요청 데이터에서 id와 password를 추출
             id = data.get('id')
             password = data.get('password')
 
-            user = authenticate(request, username=id, password=password)
+            user = authenticate(request, username=id, password=password) #Django의 인증 시스템을 사용해 사용자를 인증
             if user is not None:
                 # JWT 토큰 생성
                 refresh = RefreshToken.for_user(user)

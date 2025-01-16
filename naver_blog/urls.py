@@ -16,14 +16,17 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, re_path
+from django.conf import settings
+from django.conf.urls.static import static
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.permissions import AllowAny
 from main.views.signup import SignupView
 from main.views.profile import ProfileDetailView
-from main.views.profile import NeighborListView
 from main.views.login import LoginView
 from main.views.logout import LogoutView
+
+
 
 # 간소화된 Swagger 설정
 schema_view = get_schema_view(
@@ -43,7 +46,6 @@ urlpatterns = [
     path('signup/', SignupView.as_view(), name='signup'),
 
     #프로필 관련 API
-    path('neighbors/', NeighborListView.as_view(), name='neighbor-list'),  # 이웃 목록 조회
     path('profile/me/', ProfileDetailView.as_view(), name='profile-me'), # 내 프로필 조회, 수정, 삭제
 
     # 로그인 및 로그아웃 API
@@ -56,3 +58,6 @@ urlpatterns = [
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
 
+# 미디어 파일 처리 (개발 환경에서만)
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

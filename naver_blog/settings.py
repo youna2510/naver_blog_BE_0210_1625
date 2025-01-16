@@ -167,3 +167,11 @@ SWAGGER_SETTINGS = {
 }
 
 AUTH_USER_MODEL = 'main.CustomUser'
+
+import os
+
+# MEDIA_ROOT: 파일이 실제로 저장되는 경로
+MEDIA_ROOT = os.path.join(BASE_DIR, 'main/media')
+
+# MEDIA_URL: 브라우저에서 파일에 접근할 때 사용할 경로
+MEDIA_URL = '/media/'

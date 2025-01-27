@@ -146,22 +146,25 @@ REST_FRAMEWORK = {
     ],
 }
 # SimpleJWT 설정
+from datetime import timedelta
 SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,  # 리프레시 토큰 회전
     'BLACKLIST_AFTER_ROTATION': True,  # 리프레시 토큰 회전 후 블랙리스트 처리
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),  # 액세스 토큰 유효 기간 설정 (하루)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),  # 리프레시 토큰 유효 기간 설정 (7일)
 }
 
+# Swagger 설정 추가
 
-#Swagger UI에 JWT 입력 필드 추가
 SWAGGER_SETTINGS = {
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',
             'name': 'Authorization',
-            'in': 'header'
+            'in': 'header',
         }
     }
 }

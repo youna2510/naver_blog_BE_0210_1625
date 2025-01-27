@@ -25,7 +25,7 @@ from main.views.signup import SignupView
 from main.views.profile import ProfileDetailView
 from main.views.login import LoginView
 from main.views.logout import LogoutView
-
+from main.views.post import PostDetailView,PostListView,DraftPostListView
 
 
 # 간소화된 Swagger 설정
@@ -51,6 +51,11 @@ urlpatterns = [
     # 로그인 및 로그아웃 API
     path('login/', LoginView.as_view(), name='login'),
     path('logout/', LogoutView.as_view(), name='logout'),
+
+    #게시물 API
+    path('posts/', PostListView.as_view(), name='post_list'),
+    path('posts/<int:pk>/', PostDetailView.as_view(), name='post_detail'),
+    path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),
 
     # Swagger 경로
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),

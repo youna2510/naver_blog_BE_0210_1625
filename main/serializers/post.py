@@ -9,9 +9,10 @@ class PostTextSerializer(serializers.ModelSerializer):
 
 
 class PostImageSerializer(serializers.ModelSerializer):
+    id = serializers.ReadOnlyField()
     class Meta:
         model = PostImage
-        fields = ['image', 'caption','is_representative']
+        fields = ['id', 'image', 'caption','is_representative']
 
 
 class PostSerializer(serializers.ModelSerializer):
@@ -23,3 +24,4 @@ class PostSerializer(serializers.ModelSerializer):
         model = Post
         fields = ['id', 'author', 'title', 'category', 'visibility', 'is_complete', 'texts', 'images', 'created_at', 'updated_at']
         read_only_fields = ['id', 'author', 'created_at', 'updated_at']
+

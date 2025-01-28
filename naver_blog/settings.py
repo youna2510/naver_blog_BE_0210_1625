@@ -159,15 +159,7 @@ SIMPLE_JWT = {
 
 # Swagger 설정 추가
 
-SWAGGER_SETTINGS = {
-    'SECURITY_DEFINITIONS': {
-        'Bearer': {
-            'type': 'apiKey',
-            'name': 'Authorization',
-            'in': 'header',
-        }
-    }
-}
+
 
 AUTH_USER_MODEL = 'main.CustomUser'
 
@@ -178,3 +170,18 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'main/media')
 
 # MEDIA_URL: 브라우저에서 파일에 접근할 때 사용할 경로
 MEDIA_URL = '/media/'
+
+SWAGGER_SETTINGS = {
+    'USE_SESSION_AUTH': False,
+    'SECURITY_DEFINITIONS': {
+        'BearerAuth': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': "JWT Token을 입력하세요. 형식: 'Bearer <토큰>'"
+        }
+    },
+    'SECURITY_REQUIREMENTS': [{
+        'BearerAuth': []
+    }],
+}

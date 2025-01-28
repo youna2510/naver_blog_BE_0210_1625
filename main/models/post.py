@@ -6,12 +6,13 @@ from slugify import slugify
 def image_upload_path(instance, filename):
     """
     이미지 업로드 경로 설정.
-    경로: main/media/post_pics/{user_id}/{category}/{title}/{filename}
+    경로: post_pics/{user_id}/{category}/{title}/{filename}
     """
     user_id = instance.post.author.id
     category = slugify(instance.post.category)
     title = slugify(instance.post.title)
-    return f"main/media/post_pics/{user_id}/{category}/{title}/{filename}"
+    return f"post_pics/{user_id}/{category}/{title}/{filename}"
+
 
 
 class Post(models.Model):

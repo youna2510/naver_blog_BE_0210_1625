@@ -1,0 +1,25 @@
+# Python 캐시 파일
+*.pyc
+__pycache__/
+
+# 환경 설정 파일
+.env
+
+# 미디어 파일
+main/media/
+
+# 마이그레이션 파일
+main/migrations/
+!main/migrations/__init__.py  # __init__.py는 제외 (폴더 유지)
+
+# IDE 설정 파일
+.vscode/
+.idea/
+
+# 테스트 관련 파일
+coverage.xml
+pytest_cache/
+*.log
+
+# 기타
+*.DS_Store

@@ -11,15 +11,15 @@ class SignupView(APIView):
     @swagger_auto_schema(
         operation_summary="회원가입",
         operation_description="새로운 사용자를 생성합니다.",
-        request_body=SignupSerializer,  # Serializer 사용
+        request_body=SignupSerializer,
         responses={
             201: openapi.Response(description="회원가입 성공", schema=openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={"message": openapi.Schema(type=openapi.TYPE_STRING)}
             )),
-            400: openapi.Response(description="잘못된 요청", schema=openapi.Schema(
+            400: openapi.Response(description="회원가입 실패", schema=openapi.Schema(
                 type=openapi.TYPE_OBJECT,
-                properties={"error": openapi.Schema(type=openapi.TYPE_STRING)}
+                properties={"message": openapi.Schema(type=openapi.TYPE_STRING)}
             )),
         }
     )
@@ -28,4 +28,6 @@ class SignupView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "회원가입이 완료되었습니다."}, status=status.HTTP_201_CREATED)
-        return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 명확한 에러 메시지 반환
+        return Response({"message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)

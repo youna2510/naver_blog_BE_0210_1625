@@ -125,83 +125,12 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         return []
 
     @swagger_auto_schema(
-        operation_summary="게시물 전체 수정 (전체 수정은 사용하지 않습니다)",
-        operation_description="게시물의 모든 필드를 수정합니다. 기존 데이터를 모두 덮어씁니다.",
-        manual_parameters=[
-            openapi.Parameter('title', openapi.IN_FORM, description='게시물 제목', type=openapi.TYPE_STRING, required=True),
-            openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING, required=True),
-            openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING,
-                              enum=['everyone', 'mutual']),
-            openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING,
-                              required=False),
-            openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열 (새 이미지 업로드)', type=openapi.TYPE_ARRAY,
-                              items=openapi.Items(type=openapi.TYPE_FILE), required=False),
-            openapi.Parameter('captions', openapi.IN_FORM, description='이미지 캡션 배열 (JSON 형식 문자열)',
-                              type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter('is_representative', openapi.IN_FORM, description='대표 사진 여부 배열 (JSON 형식 문자열)',
-                              type=openapi.TYPE_STRING, required=False),
-        ],
-        responses={200: PostSerializer()},
+        operation_summary="게시물 전체 수정 (사용 불가)",
+        operation_description="PUT 메서드는 허용되지 않습니다. 대신 PATCH를 사용하세요.",
+        responses={405: "PUT method is not allowed. Use PATCH instead."},
     )
     def put(self, request, *args, **kwargs):
-        instance = self.get_object()
-
-        title = request.data.get('title')
-        category = request.data.get('category')
-        visibility = request.data.get('visibility', 'everyone')
-        is_complete = request.data.get('is_complete', 'false')
-
-        # ✅ 필수 데이터 검증 (is_complete=false면 거부)
-        if not title or not category:
-            return Response({"error": "title과 category는 필수 항목입니다."}, status=400)
-        if is_complete == "false":  # `false`일 경우 전체 수정 불가
-            return Response({"error": "is_complete가 true일 때만 게시물을 수정할 수 있습니다."}, status=400)
-
-        texts = self.parse_json_field(request.data.get('texts'))
-        captions = self.parse_json_field(request.data.get('captions'))
-        is_representative_flags = self.parse_json_field(request.data.get('is_representative'))
-        images = request.FILES.getlist('images', [])
-
-        # ✅ 기존 데이터 삭제 후 재작성
-        instance.texts.all().delete()
-        for image in instance.images.all():
-            image.image.delete()  # 실제 파일 삭제
-            image.delete()
-
-        instance.title = title
-        instance.category = category
-        instance.visibility = visibility
-        instance.is_complete = is_complete
-        instance.save()
-
-        # ✅ 새 이미지 저장
-        created_images = []
-        for idx, image in enumerate(images):
-            caption = captions[idx] if idx < len(captions) else None
-            is_representative = is_representative_flags[idx] if idx < len(is_representative_flags) else False
-            post_image = PostImage.objects.create(
-                post=instance,
-                image=image,
-                caption=caption,
-                is_representative=is_representative
-            )
-            created_images.append(post_image)
-
-        # ✅ 대표 이미지 중복 검사 (한 개만 가능)
-        if sum(img.is_representative for img in created_images) > 1:
-            return Response({"error": "대표 이미지는 한 개만 설정할 수 있습니다."}, status=400)
-
-        # ✅ 대표 이미지 자동 설정
-        if not any(img.is_representative for img in created_images) and created_images:
-            created_images[0].is_representative = True
-            created_images[0].save()
-
-        # ✅ 새 텍스트 저장
-        for text in texts:
-            PostText.objects.create(post=instance, content=text)
-
-        serializer = PostSerializer(instance)
-        return Response(serializer.data, status=200)
+        return Response({"error": "PUT method is not allowed. Use PATCH instead."}, status=405)
 
     @swagger_auto_schema(
         operation_summary="게시물 부분 수정 (PATCH)",

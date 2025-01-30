@@ -5,7 +5,8 @@ __pycache__/
 # 환경 설정 파일
 .env
 
-
+# 미디어 파일
+main/media/
 
 # 마이그레이션 파일
 main/migrations/

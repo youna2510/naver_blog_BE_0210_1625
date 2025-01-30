@@ -1,4 +1,4 @@
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, RetrieveAPIView
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -49,29 +49,22 @@ class PostListView(ListCreateAPIView):
         texts = parse_json_field(request.data.get('texts'))
         captions = parse_json_field(request.data.get('captions'))
         is_representative_flags = parse_json_field(request.data.get('is_representative'))
-
         images = request.FILES.getlist('images', [])
 
-        # ✅ 필수 데이터 검증 (is_complete가 false면 거부)
+        # ✅ 필수 데이터 검증
         if not title or not category:
             return Response({"error": "title과 category는 필수 항목입니다."}, status=400)
-        if is_complete == "false":  # `false`일 경우 생성 불가
-            return Response({"error": "is_complete가 true일 때만 게시물을 생성할 수 있습니다."}, status=400)
 
-         # 대표 이미지 중복 검사 (한 개만 가능)
-        if is_representative_flags.count(True) > 1:
-            return Response({"error": "대표 이미지는 한 개만 설정할 수 있습니다."},status=400)
-
-        # Post 객체 생성
+        # ✅ 게시물 생성
         post = Post.objects.create(
             author=request.user,
             title=title,
             category=category,
             visibility=visibility,
-            is_complete=is_complete
+            is_complete=is_complete  # ✅ 임시 저장 가능하도록 수정
         )
 
-        # PostImage 생성
+        # ✅ PostImage 생성 (이미지가 있을 경우)
         created_images = []
         for idx, image in enumerate(images):
             caption = captions[idx] if idx < len(captions) else None
@@ -84,18 +77,21 @@ class PostListView(ListCreateAPIView):
             )
             created_images.append(post_image)
 
-        # 대표 이미지가 없을 경우 첫 번째 이미지를 대표로 설정
+        # ✅ 대표 이미지가 없을 경우 첫 번째 이미지를 대표로 설정
         if not any(img.is_representative for img in created_images) and created_images:
             created_images[0].is_representative = True
             created_images[0].save()
 
-        # PostText 생성
+        # ✅ PostText 생성
         for text in texts:
             PostText.objects.create(post=post, content=text)
 
-        # 직렬화 후 응답
+        # ✅ 응답 메시지 구분
         serializer = PostSerializer(post)
-        return Response(serializer.data, status=201)
+        if is_complete == "true":
+            return Response({"message": "게시물이 성공적으로 생성되었습니다.", "post": serializer.data}, status=201)
+        else:
+            return Response({"message": "게시물이 임시 저장되었습니다.", "post": serializer.data}, status=201)
 
 
 class PostDetailView(RetrieveUpdateDestroyAPIView):
@@ -141,6 +137,9 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
                               required=False),
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING,
                               enum=['everyone', 'mutual'], required=False),
+            openapi.Parameter('is_complete', openapi.IN_FORM,
+                              description='작성 상태 (true: 작성 완료, false: 임시 저장 → 변경 가능, 단 true → false 변경 불가)',
+                              type=openapi.TYPE_STRING, enum=['true', 'false'], required=False),  # ✅ 설명 추가
             openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열, id 포함 가능)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열 (새 이미지 업로드)', type=openapi.TYPE_ARRAY,
@@ -150,19 +149,19 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
             openapi.Parameter('is_representative', openapi.IN_FORM, description='대표 사진 여부 배열 (JSON 형식 문자열, id 포함 가능)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('remove_images', openapi.IN_FORM, description='삭제할 이미지 ID 목록 (JSON 형식 문자열)',
-                              type=openapi.TYPE_STRING, required=False),  # ✅ 추가됨
+                              type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('update_images', openapi.IN_FORM, description='수정할 이미지 ID 목록 (JSON 형식 문자열)',
-                              type=openapi.TYPE_STRING, required=False),  # ✅ 추가됨
+                              type=openapi.TYPE_STRING, required=False),
         ],
         responses={200: PostSerializer()},
     )
     def patch(self, request, *args, **kwargs):
         instance = self.get_object()
 
-        # ✅ 필수 데이터 검증 (is_complete=false면 거부)
-        is_complete = request.data.get('is_complete', str(instance.is_complete)).lower()  # 기존 값 유지
-        if is_complete == "false":  # `false`일 경우 부분 수정 불가
-            return Response({"error": "is_complete가 true일 때만 게시물을 수정할 수 있습니다."}, status=400)
+        # ✅ `is_complete=true`인 게시물은 `false`로 변경할 수 없음
+        new_is_complete = request.data.get('is_complete', instance.is_complete)
+        if instance.is_complete == "true" and new_is_complete == "false":
+            return Response({"error": "작성 완료된 게시물은 다시 임시 저장 상태로 변경할 수 없습니다."}, status=400)
 
         # ✅ 기본 필드 업데이트
         if 'title' in request.data:
@@ -172,7 +171,8 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         if 'visibility' in request.data:
             instance.visibility = request.data.get('visibility')
         if 'is_complete' in request.data:
-            instance.is_complete = request.data.get('is_complete')
+            instance.is_complete = request.data.get('is_complete')  # ✅ is_complete 값 변경 허용 (단, true → false 불가)
+
         instance.save()
 
         # ✅ Swagger에서 form-data로 전달된 데이터 파싱
@@ -259,7 +259,6 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
 
         return Response(status=204)
 
-
 class DraftPostListView(ListAPIView):
     """
     임시 저장된 게시물만 반환하는 뷰
@@ -278,5 +277,27 @@ class DraftPostListView(ListAPIView):
     def get_queryset(self):
         """
         요청한 사용자의 임시 저장된 게시물만 반환
+        """
+        return Post.objects.filter(author=self.request.user, is_complete='false')
+
+
+class DraftPostDetailView(RetrieveAPIView):
+    """
+    특정 임시 저장된 게시물 1개 반환하는 뷰
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PostSerializer
+
+    @swagger_auto_schema(
+        operation_summary="임시 저장된 게시물 상세 조회",
+        operation_description="특정 임시 저장된 게시물의 상세 정보를 반환합니다.",
+        responses={200: PostSerializer()},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        """
+        요청한 사용자의 특정 임시 저장된 게시물만 반환
         """
         return Post.objects.filter(author=self.request.user, is_complete='false')

@@ -25,7 +25,7 @@ from main.views.signup import SignupView
 from main.views.profile import ProfileDetailView
 from main.views.login import LoginView
 from main.views.logout import LogoutView
-from main.views.post import PostDetailView,PostListView,DraftPostListView
+from main.views.post import PostDetailView,PostListView,DraftPostListView,DraftPostDetailView
 
 
 # 간소화된 Swagger 설정
@@ -52,10 +52,13 @@ urlpatterns = [
     path('login/', LoginView.as_view(), name='login'),
     path('logout/', LogoutView.as_view(), name='logout'),
 
-    #게시물 API
-    path('posts/', PostListView.as_view(), name='post_list'),
-    path('posts/<int:pk>/', PostDetailView.as_view(), name='post_detail'),
-    path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),
+    # 게시물 API
+    path('posts/', PostListView.as_view(), name='post_list'),  # 게시물 작성 및 전체 조회
+    path('posts/<int:pk>/', PostDetailView.as_view(), name='post_detail'),  # 특정 게시물 상세 조회, 수정, 삭제
+
+    # 임시 저장된 게시물 API
+    path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),  # 임시 저장된 게시물 목록 조회
+    path('posts/drafts/<int:pk>/', DraftPostDetailView.as_view(), name='draft_post_detail'),  # 특정 임시 저장된 게시물 상세 조회
 
     # Swagger 경로
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),

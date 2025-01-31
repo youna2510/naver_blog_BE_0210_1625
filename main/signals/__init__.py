@@ -1,1 +1,1 @@
-from .user_signals import create_profile
+from .signals import create_profile

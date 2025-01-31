@@ -19,6 +19,7 @@ class Post(models.Model):
     VISIBILITY_CHOICES = [
         ('everyone', '전체 공개'),
         ('mutual', '서로 이웃만 공개'),
+        ('me', '나만 보기'),
     ]
 
     COMPLETE_CHOICES = [
@@ -41,6 +42,7 @@ class Post(models.Model):
         default='false',  # 기본값은 임시 저장
         verbose_name="작성 상태"
     )
+    like_count = models.PositiveIntegerField(default=0)  # ✅ 하트 개수 저장
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

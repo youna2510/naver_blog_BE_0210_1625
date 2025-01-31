@@ -26,7 +26,9 @@ from main.views.profile import ProfileDetailView
 from main.views.login import LoginView
 from main.views.logout import LogoutView
 from main.views.post import PostDetailView,PostListView,DraftPostListView,DraftPostDetailView
-
+from main.views.comment import CommentListView, CommentDetailView
+from main.views.heart import ToggleHeartView, PostHeartUsersView, PostHeartCountView
+from main.views.commentHeart import ToggleCommentHeartView, CommentHeartCountView
 
 # 간소화된 Swagger 설정
 schema_view = get_schema_view(
@@ -59,6 +61,24 @@ urlpatterns = [
     # 임시 저장된 게시물 API
     path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),  # 임시 저장된 게시물 목록 조회
     path('posts/drafts/<int:pk>/', DraftPostDetailView.as_view(), name='draft_post_detail'),  # 특정 임시 저장된 게시물 상세 조회
+
+    # 특정 게시글의 댓글 목록 조회 & 댓글 작성 (POST / GET)
+    path('posts/<int:post_id>/comments/', CommentListView.as_view(), name='comment-list'),
+    # 특정 댓글 조회, 수정, 삭제 (GET / PATCH / DELETE)
+    path('posts/<int:post_id>/comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),
+
+    #공감 관련 API
+
+    #게시글 좋아요 추가/삭제
+    path('posts/<int:post_id>/heart/', ToggleHeartView.as_view(), name='toggle-heart'),
+    #게시글 좋아요 누른 유저 목록 조회
+    path('posts/<int:post_id>/heart/users/', PostHeartUsersView.as_view(), name='post-heart-users'),
+    #게시글 좋아요 개수 조회
+    path('posts/<int:post_id>/heart/count/', PostHeartCountView.as_view(), name='post-heart-count'),
+    #댓글/대댓글 좋아요 추가/삭제
+    path('comments/<int:comment_id>/heart/', ToggleCommentHeartView.as_view(), name='toggle-comment-heart'),
+    #댓글/대댓글 좋아요 개수 조회
+    path('comments/<int:comment_id>/heart/count/', CommentHeartCountView.as_view(), name='comment-heart-count'),
 
     # Swagger 경로
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),

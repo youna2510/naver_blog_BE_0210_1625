@@ -1,6 +1,8 @@
 from django.db import models
 from django.conf import settings
 import os
+from django.db.models.signals import post_save
+
 
 # 업로드 경로를 처리하는 함수
 def blog_pic_upload_path(instance, filename):

@@ -16,13 +16,31 @@ class PostListView(ListCreateAPIView):
     queryset = Post.objects.all()
     serializer_class = PostSerializer
 
+    def get_queryset(self):
+        user = self.request.user
+        return Post.objects.filter(
+            models.Q(visibility='everyone') |
+            models.Q(author=user) |
+            models.Q(visibility='mutual', author__in=user.friends.all())
+        )
+
+    @swagger_auto_schema(
+        operation_summary="게시물 목록 조회",
+        operation_description="로그인한 사용자가 볼 수 있는 게시물 목록을 반환합니다.",
+        responses={200: PostSerializer(many=True)}
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
     @swagger_auto_schema(
         operation_summary="게시물 생성 (multipart/form-data 사용)",
         operation_description="게시물을 생성할 때 JSON 데이터와 이미지를 함께 업로드할 수 있습니다.",
         manual_parameters=[
             openapi.Parameter('title', openapi.IN_FORM, description='게시물 제목', type=openapi.TYPE_STRING, required=True),
             openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING, required=True),
-            openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING, enum=['everyone', 'mutual'], required=False),
+            openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING, enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM, description='작성 상태', type=openapi.TYPE_STRING, enum=['true', 'false'], required=False),
             openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열', type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_FILE), required=False),
@@ -136,7 +154,7 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
             openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING,
                               required=False),
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING,
-                              enum=['everyone', 'mutual'], required=False),
+                              enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM,
                               description='작성 상태 (true: 작성 완료, false: 임시 저장 → 변경 가능, 단 true → false 변경 불가)',
                               type=openapi.TYPE_STRING, enum=['true', 'false'], required=False),  # ✅ 설명 추가
@@ -163,39 +181,40 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         if instance.is_complete == "true" and new_is_complete == "false":
             return Response({"error": "작성 완료된 게시물은 다시 임시 저장 상태로 변경할 수 없습니다."}, status=400)
 
-        # ✅ 기본 필드 업데이트
-        if 'title' in request.data:
-            instance.title = request.data.get('title')
-        if 'category' in request.data:
-            instance.category = request.data.get('category')
-        if 'visibility' in request.data:
-            instance.visibility = request.data.get('visibility')
-        if 'is_complete' in request.data:
-            instance.is_complete = request.data.get('is_complete')  # ✅ is_complete 값 변경 허용 (단, true → false 불가)
+        # ✅ visibility 값 검증 및 업데이트
+        new_visibility = request.data.get('visibility', instance.visibility)
+        if new_visibility not in dict(Post.VISIBILITY_CHOICES):
+            return Response({"error": "잘못된 공개 범위 값입니다."}, status=400)
+        instance.visibility = new_visibility
 
+        # ✅ 기본 필드 업데이트
+        instance.title = request.data.get('title', instance.title)
+        instance.category = request.data.get('category', instance.category)
+        instance.is_complete = request.data.get('is_complete',
+                                                instance.is_complete)  # is_complete 변경 허용 (true→false 불가)
         instance.save()
 
-        # ✅ Swagger에서 form-data로 전달된 데이터 파싱
+        # ✅ JSON 데이터 파싱 함수
+        def parse_json_field(field):
+            try:
+                return json.loads(request.data.get(field, "[]"))
+            except json.JSONDecodeError:
+                return []
+
         images = request.FILES.getlist('images')  # 새로 업로드된 이미지 파일 리스트
-        captions = json.loads(request.data.get('captions', '[]'))  # 캡션 배열
-        is_representative_flags = json.loads(request.data.get('is_representative', '[]'))  # 대표 여부 배열
-        remove_images = json.loads(request.data.get('remove_images', '[]'))  # 삭제할 이미지 ID 배열
-        update_images = json.loads(request.data.get('update_images', '[]'))  # 기존 이미지 ID 리스트
+        captions = parse_json_field('captions')  # 캡션 배열
+        is_representative_flags = parse_json_field('is_representative')  # 대표 여부 배열
+        remove_images = parse_json_field('remove_images')  # 삭제할 이미지 ID 배열
+        update_images = parse_json_field('update_images')  # 기존 이미지 ID 리스트
 
         # ✅ 기존 이미지 삭제
-        for image_id in remove_images:
-            try:
-                post_image = PostImage.objects.get(id=image_id, post=instance)
-                post_image.image.delete()  # 실제 파일 삭제
-                post_image.delete()  # DB 레코드 삭제
-            except PostImage.DoesNotExist:
-                continue  # 존재하지 않는 경우 무시
+        PostImage.objects.filter(id__in=remove_images, post=instance).delete()
 
         # ✅ 기존 이미지 수정 (ID 유지) - 업로드된 파일과 ID 매칭
         for idx, image_id in enumerate(update_images):
             try:
                 post_image = PostImage.objects.get(id=image_id, post=instance)
-                if idx < len(images):  # 업로드된 이미지 파일이 있다면
+                if idx < len(images):  # 업로드된 새 이미지가 있다면
                     post_image.image.delete()  # 기존 이미지 삭제
                     post_image.image = images[idx]  # 새로운 이미지 저장
                 post_image.save()
@@ -204,31 +223,24 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
 
         # ✅ 새 이미지 추가 (ID가 새로 생성됨)
         for idx, image in enumerate(images[len(update_images):]):  # 기존 이미지 수정 후 남은 파일들
-            caption = captions[idx] if idx < len(captions) else None
-            is_representative = (
-                is_representative_flags[idx] if idx < len(is_representative_flags) else False
-            )
             PostImage.objects.create(
                 post=instance,
                 image=image,
-                caption=caption,
-                is_representative=is_representative,
+                caption=captions[idx] if idx < len(captions) else None,
+                is_representative=is_representative_flags[idx] if idx < len(is_representative_flags) else False,
             )
 
-        # ✅ 대표 이미지 중복 검사
+        # ✅ 대표 이미지 중복 검사 및 자동 설정
         representative_images = instance.images.filter(is_representative=True)
         if representative_images.count() > 1:
-            return Response(
-                {"error": "대표 이미지는 한 개만 설정할 수 있습니다."},
-                status=400,
-            )
+            return Response({"error": "대표 이미지는 한 개만 설정할 수 있습니다."}, status=400)
 
-        # ✅ 대표 이미지가 없으면 첫 번째 이미지 자동 설정
         if representative_images.count() == 0 and instance.images.exists():
             first_image = instance.images.first()
             first_image.is_representative = True
             first_image.save()
 
+        # ✅ 응답 반환
         serializer = PostSerializer(instance)
         return Response(serializer.data, status=200)
 

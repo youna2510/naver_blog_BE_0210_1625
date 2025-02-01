@@ -10,6 +10,8 @@ from drf_yasg import openapi
 
 User = get_user_model()  # ✅ Django의 사용자 모델 가져오기
 
+User = get_user_model()  # ✅ Django의 사용자 모델 가져오기
+
 class ToggleHeartView(generics.GenericAPIView):
     """ ✅ 하트 추가/삭제 (토글 기능) """
     permission_classes = [IsAuthenticated]
@@ -79,7 +81,6 @@ class PostHeartUsersView(generics.RetrieveAPIView):
                         items=openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
-                                "id": openapi.Schema(type=openapi.TYPE_INTEGER, description="유저 ID"),
                                 "username": openapi.Schema(type=openapi.TYPE_STRING, description="유저 이름")
                             }
                         ),
@@ -101,10 +102,11 @@ class PostHeartUsersView(generics.RetrieveAPIView):
         if post.visibility == 'mutual' and not post.author.profile.is_mutual(user.profile):
             return Response({"error": "서로 이웃만 이 게시글의 좋아요 유저 목록을 조회할 수 있습니다."}, status=status.HTTP_403_FORBIDDEN)
 
-        hearts = Heart.objects.filter(post=post).select_related('user')  # ✅ 해당 게시글의 좋아요 기록 가져오기
-        liked_users = [{"id": heart.user.id, "username": heart.user.username} for heart in hearts]  # ✅ 유저 정보 추출
+        hearts = Heart.objects.filter(post=post).select_related('user__profile')  # ✅ profile까지 join
+        liked_users = [{"username": heart.user.profile.username} for heart in hearts]  # ✅ 프로필의 username 사용
 
         return Response({"liked_users": liked_users}, status=status.HTTP_200_OK)
+
 
 class PostHeartCountView(generics.RetrieveAPIView):
     """ ✅ 특정 게시글의 하트 개수 반환 """
@@ -135,5 +137,6 @@ class PostHeartCountView(generics.RetrieveAPIView):
             return Response({"error": "서로 이웃만 이 게시글의 하트 개수를 조회할 수 있습니다."}, status=status.HTTP_403_FORBIDDEN)
 
         return Response({"like_count": post.like_count}, status=status.HTTP_200_OK)
+
 
 

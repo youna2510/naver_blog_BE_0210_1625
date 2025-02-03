@@ -4,3 +4,4 @@ from .post import Post,PostText,PostImage
 from .comment import Comment
 from .heart import Heart
 from .commentHeart import CommentHeart
+from .neighbor import Neighbor

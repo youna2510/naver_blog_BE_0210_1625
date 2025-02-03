@@ -1,4 +1,4 @@
-from django.db.models.signals import pre_save, post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.conf import settings
 from main.models.profile import Profile
@@ -12,8 +12,10 @@ def create_profile(sender, instance, created, **kwargs):
         Profile.objects.create(
             user=instance,
             blog_name=f"{instance.id}님의 블로그",
-            username=instance.id
+            username=instance.id,  # ✅ username 기본값
+            urlname=str(instance.id),
         )
+
 
 # ✅ 프로필 변경 전에 기존 값을 저장하는 딕셔너리
 old_usernames = {}
@@ -33,11 +35,9 @@ def update_comment_author_name(sender, instance, **kwargs):
     old_username = old_usernames.get(instance.pk)
 
     if old_username and old_username != instance.username:
-
         # ✅ 기존 댓글을 찾아 author_name을 업데이트
         comments = Comment.objects.filter(author=instance)
         for comment in comments:
-
             comment.author_name = instance.username
             comment.save()  # ✅ 개별 저장
 

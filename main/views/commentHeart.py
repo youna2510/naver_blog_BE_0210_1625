@@ -4,12 +4,14 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from main.models.comment import Comment
 from main.models.commentHeart import CommentHeart
+from main.serializers.commentHeart import CommentHeartSerializer
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 
 class ToggleCommentHeartView(generics.GenericAPIView):
     """ ✅ 댓글/대댓글 좋아요(하트) 추가/삭제 (토글 기능) """
+    serializer_class = CommentHeartSerializer
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -67,8 +69,8 @@ class ToggleCommentHeartView(generics.GenericAPIView):
 
 class CommentHeartCountView(generics.RetrieveAPIView):
     """ ✅ 댓글/대댓글의 좋아요(하트) 개수 조회 """
+    serializer_class = CommentHeartSerializer  # ✅ 추가
     permission_classes = [IsAuthenticated]
-
     @swagger_auto_schema(
         operation_summary="댓글/대댓글 좋아요(하트) 개수 조회",
         operation_description="특정 댓글 또는 대댓글의 좋아요(하트) 개수를 반환합니다.",

@@ -4,12 +4,23 @@ from ..models.profile import Profile
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
-        fields = ['blog_name', 'blog_pic', 'username', 'user_pic', 'intro']  # intro 필드 추가
+        fields = [
+            'blog_name', 'blog_pic', 'username', 'user_pic', 'intro',
+            'neighbor_visibility', 'urlname', 'urlname_edit_count'
+        ]
+        read_only_fields = ['urlname']
         extra_kwargs = {
             'blog_pic': {'required': False, 'allow_null': True},
             'user_pic': {'required': False, 'allow_null': True},
-            'intro': {'required': False, 'allow_blank': True}  # intro는 선택사항
+            'intro': {'required': False, 'allow_blank': True},
+            'urlname_edit_count': {'read_only': True},  # ✅ 변경 횟수는 클라이언트가 수정 불가
         }
+
+    def get_neighbors(self,obj):
+        return [
+            {"username": neighbor.username, "user_pic": neighbor.user_pic.url if neighbor.user_pic else None}
+            for neighbor in obj.neighsbors.all()
+        ]
 
     def validate_blog_name(self, value):
         if not value.strip():
@@ -65,6 +76,17 @@ class ProfileSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("프로필 사진은 5MB 이하의 파일만 업로드할 수 있습니다.")
             if value.content_type not in ["image/jpeg", "image/png"]:
                 raise serializers.ValidationError("프로필 사진은 JPEG 또는 PNG 형식만 지원됩니다.")
+        return value
+
+class UrlnameUpdateSerializer(serializers.Serializer):
+    """ ✅ `urlname`만 변경할 수 있도록 별도 시리얼라이저 생성 """
+    urlname = serializers.CharField(max_length=30, required=True)
+
+    def validate_urlname(self, value):
+        """ ✅ URL 이름 변경 제한 """
+        profile = self.context.get('profile')  # ✅ `ProfileUrlnameUpdateView`에서 넘긴 profile 객체
+        if profile and profile.urlname_edit_count >= 1:
+            raise serializers.ValidationError("URL 이름은 한 번만 변경할 수 있습니다.")
         return value
 
 

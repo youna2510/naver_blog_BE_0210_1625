@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from ..models import Post, PostText, PostImage
+from ..models.neighbor import Neighbor
+from django.db.models import Q
 from ..serializers import PostSerializer
 import json
 import os
@@ -18,10 +20,28 @@ class PostListView(ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        public_posts = Q(visibility='everyone')
+        my_posts = Q(author=user)
+
+        from_neighbors = list(
+            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True))
+        to_neighbors = list(
+            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True))
+
+        # ✅ 두 리스트를 합치고 중복 제거
+        neighbor_ids = set(from_neighbors + to_neighbors)
+
+        # 🔥 본인의 ID는 제외
+        neighbor_ids.discard(user.id)
+
+        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
+
+        # 본인의 ID는 제외
+        neighbor_ids = set(neighbor_ids) - {user.id}
+
+
         return Post.objects.filter(
-            models.Q(visibility='everyone') |
-            models.Q(author=user) |
-            models.Q(visibility='mutual', author__in=user.friends.all())
+           public_posts | my_posts | mutual_neighbor_posts
         )
 
     @swagger_auto_schema(
@@ -121,6 +141,26 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = PostSerializer
     parser_classes = [MultiPartParser, FormParser]
 
+    def get_queryset(self):
+        user = self.request.user
+        my_posts = Q(author=user)
+
+        # ✅ 서로이웃 ID 리스트 가져오기
+        from_neighbors = list(
+            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True))
+        to_neighbors = list(
+            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True))
+
+        # ✅ 두 리스트를 합치고 중복 제거
+        neighbor_ids = set(from_neighbors + to_neighbors)
+
+        # 🔥 본인의 ID는 제외
+        neighbor_ids.discard(user.id)
+
+        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
+        public_posts = Q(visibility='everyone')
+
+        return Post.objects.filter(public_posts | my_posts | mutual_neighbor_posts)
     @swagger_auto_schema(
         operation_summary="게시물 상세 조회",
         operation_description="특정 게시물의 텍스트와 이미지를 포함한 상세 정보를 조회합니다.",
@@ -266,9 +306,10 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         if folder_path and os.path.isdir(folder_path):
             shutil.rmtree(folder_path)  # 폴더 삭제
 
-        # ✅ 게시물 삭제
-        instance.delete()
+        if instance.author != request.user:
+            return Response({"error": "게시물을 삭제할 권한이 없습니다."}, status=403)
 
+        instance.delete()
         return Response(status=204)
 
 class DraftPostListView(ListAPIView):

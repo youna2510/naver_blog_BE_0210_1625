@@ -7,14 +7,14 @@ from main.models.heart import Heart
 from django.contrib.auth import get_user_model
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-
-User = get_user_model()  # ✅ Django의 사용자 모델 가져오기
+from main.serializers.heart import HeartSerializer
 
 User = get_user_model()  # ✅ Django의 사용자 모델 가져오기
 
 class ToggleHeartView(generics.GenericAPIView):
     """ ✅ 하트 추가/삭제 (토글 기능) """
     permission_classes = [IsAuthenticated]
+    serializer_class = HeartSerializer  # ✅ 기존 Serializer 사용
 
     @swagger_auto_schema(
         operation_summary="하트 추가/삭제",
@@ -37,6 +37,10 @@ class ToggleHeartView(generics.GenericAPIView):
         }
     )
     def post(self, request, post_id):
+        # ✅ Swagger 문서 생성 시 DB 조회 방지
+        if getattr(self, 'swagger_fake_view', False):
+            return Response({"message": "Swagger 문서 생성 중"}, status=status.HTTP_200_OK)
+
         post = get_object_or_404(Post, id=post_id)
         user = request.user
 
@@ -48,10 +52,10 @@ class ToggleHeartView(generics.GenericAPIView):
         if post.visibility == 'mutual' and not post.author.profile.is_mutual(user.profile):
             return Response({"error": "서로 이웃만 이 게시글에 좋아요를 누를 수 있습니다."}, status=status.HTTP_403_FORBIDDEN)
 
-        # ✅ 현재 유저가 이미 하트를 눌렀는지 확인
-        heart, created = Heart.objects.get_or_create(post=post, user=user)
+        # ✅ 현재 유저가 이미 하트를 눌렀는지 확인하고 최적화
+        heart = Heart.objects.filter(post=post, user=user).first()
 
-        if not created:
+        if heart:
             # ✅ 이미 하트를 눌렀으면 삭제
             heart.delete()
             post.like_count = max(0, post.like_count - 1)  # ✅ like_count 감소
@@ -59,6 +63,7 @@ class ToggleHeartView(generics.GenericAPIView):
             return Response({"message": "하트 취소", "like_count": post.like_count}, status=status.HTTP_200_OK)
 
         # ✅ 새로 하트를 눌렀다면 증가
+        Heart.objects.create(post=post, user=user)
         post.like_count += 1
         post.save()
 

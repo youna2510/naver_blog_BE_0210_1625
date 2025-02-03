@@ -1,5 +1,5 @@
 import re
-from rest_framework import generics
+from rest_framework import generics,status
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
@@ -11,8 +11,10 @@ from main.models.post import Post
 from main.serializers.comment import CommentSerializer
 from main.models.profile import Profile  # ✅ Profile 모델 임포트
 from django.contrib.auth import get_user_model
+from rest_framework.response import Response
 
 User = get_user_model()  # Django 기본 User 모델 가져오기
+
 
 class CommentListView(generics.ListCreateAPIView):
     serializer_class = CommentSerializer
@@ -21,104 +23,45 @@ class CommentListView(generics.ListCreateAPIView):
     @swagger_auto_schema(
         operation_summary="댓글 목록 조회",
         operation_description="게시글의 댓글 및 대댓글을 조회합니다. 비밀 댓글은 작성자 또는 게시글 작성자만 볼 수 있습니다.",
-        responses={200: openapi.Response(description="조회 성공", schema=CommentSerializer(many=True))}
+        responses={
+            200: openapi.Response(description="조회 성공", schema=CommentSerializer(many=True)),
+            403: openapi.Response(description="조회 권한이 없습니다.")
+        }
     )
     def get(self, request, *args, **kwargs):
-        self.queryset = self.get_queryset()
+        queryset = self.get_queryset()
+
+        # ✅ 조회할 수 없는 경우 403 반환
+        if not queryset.exists():
+            return Response({"error": "이 게시글의 댓글을 조회할 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
+
+        self.queryset = queryset
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
         """
         ✅ 특정 댓글 조회 (비밀 댓글 및 'mutual' 게시글 제한)
         """
-        if getattr(self, 'swagger_fake_view', False):  # ✅ Swagger 문서 생성 중이라면 예외 방지
-            return Comment.objects.none()
-
         post_id = self.kwargs.get('post_id')
         user = self.request.user
+
+        # ✅ Swagger 요청이면 빈 QuerySet 반환
+        if getattr(self, 'swagger_fake_view', False):
+            return Comment.objects.none()
+
         post = get_object_or_404(Post, id=post_id)
 
-        # ✅ '나만 보기' 게시글이면 작성자 본인만 조회 가능
+        # ✅ '나만 보기' 게시글이면 작성자 본인만 댓글 조회 가능
         if post.visibility == 'me' and (not user.is_authenticated or post.author.profile != user.profile):
             return Comment.objects.none()
 
         # ✅ '서로 이웃 공개' 게시글이면 서로 이웃만 댓글 조회 가능
-        if post.visibility == 'mutual' and (
-                not user.is_authenticated or not post.author.profile.is_mutual(user.profile)):
+        if post.visibility == 'mutual' and not post.author.profile.neighbors.filter(id=user.profile.id).exists():
             return Comment.objects.none()
 
         return Comment.objects.filter(post_id=post_id)
 
-    @swagger_auto_schema(
-        operation_summary="댓글 작성",
-        operation_description="게시글에 댓글 또는 대댓글을 작성합니다. 서로 이웃만 댓글을 작성할 수 있습니다.",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'content': openapi.Schema(type=openapi.TYPE_STRING, description='댓글 내용'),
-                'is_private': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='비밀 댓글 여부', default=False),
-                'parent': openapi.Schema(type=openapi.TYPE_INTEGER, description='부모 댓글 ID (대댓글인 경우)', nullable=True),
-            },
-            required=['content']
-        ),
-        responses={
-            201: openapi.Response(description="작성 성공", schema=CommentSerializer()),
-            403: openapi.Response(description="서로 이웃만 댓글을 작성할 수 있습니다."),
-            400: openapi.Response(description="잘못된 요청입니다."),
-        }
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
 
-    def perform_create(self, serializer):
-        """
-        ✅ 댓글 및 대댓글 저장 로직
-        - `mutual` 게시글의 경우 서로 이웃만 댓글 작성 가능
-        - `me` 게시글의 경우 작성자 본인만 댓글 작성 가능
-        """
-        post_id = self.kwargs.get('post_id')
-        post = get_object_or_404(Post, id=post_id)
-        user = self.request.user
-
-        parent_id = self.request.data.get('parent')
-        is_private = self.request.data.get('is_private', False)
-
-        # ✅ '나만 보기' 게시글이면 작성자 본인만 댓글 가능
-        if post.visibility == 'me' and post.author.profile != user.profile:
-            raise ValidationError("이 게시글에는 작성자 본인만 댓글을 작성할 수 있습니다.")
-
-        # ✅ '서로 이웃 공개' 게시글이면 서로 이웃만 댓글 가능 (is_mutual() 대신 neighbors 필드 직접 사용)
-        if post.visibility == 'mutual' and not post.author.profile.neighbors.filter(id=user.profile.id).exists():
-            raise ValidationError("서로 이웃만 이 게시글에 댓글을 작성할 수 있습니다.")
-
-        is_post_author = user.profile == post.author.profile
-
-        if parent_id:
-            parent_comment = get_object_or_404(Comment, id=parent_id)
-
-            # ✅ 부모 댓글도 `mutual` 제한을 따름
-            if parent_comment.post.visibility == 'mutual' and not parent_comment.post.author.profile.neighbors.filter(
-                    id=user.profile.id).exists():
-                raise ValidationError("서로 이웃만 이 게시글에 대댓글을 작성할 수 있습니다.")
-
-            serializer.save(
-                post=post,
-                author=user.profile,
-                author_name=user.profile.username,
-                parent=parent_comment,
-                is_parent=False,
-                is_post_author=is_post_author,
-                is_private=is_private
-            )
-        else:
-            serializer.save(
-                post=post,
-                author=user.profile,
-                author_name=user.profile.username,
-                is_parent=True,
-                is_post_author=is_post_author,
-                is_private=is_private
-            )
 class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -140,23 +83,27 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
         ✅ 특정 댓글 조회 (비밀 댓글 및 'mutual' 게시글 제한)
         """
         post_id = self.kwargs.get('post_id')
+        user = self.request.user  # ✅ NameError 해결 (user 추가)
+
+        if post_id is None:
+            raise Http404("post_id가 없습니다.")  # ✅ post_id가 없으면 404 에러 반환
 
         # ✅ Swagger 요청이면 빈 QuerySet 반환
         if getattr(self, 'swagger_fake_view', False):
             return Comment.objects.none()
 
-        try:
-            post = get_object_or_404(Post, id=post_id)
-        except Http404:
-            return Comment.objects.none()
+        post = get_object_or_404(Post, id=post_id)
 
         # ✅ '나만 보기' 게시글이면 작성자 본인만 조회 가능
         if post.visibility == 'me' and (not user.is_authenticated or post.author.profile != user.profile):
             return Comment.objects.none()
 
         # ✅ '서로 이웃 공개' 게시글이면 서로 이웃만 댓글 조회 가능
-        if post.visibility == 'mutual' and not post.author.profile.neighbors.filter(id=user.profile.id).exists():
-            return Comment.objects.none()
+        if post.visibility == 'mutual':
+            if not user.is_authenticated:
+                return Comment.objects.none()
+            if not post.author.profile.neighbors.filter(id=user.profile.id).exists():
+                return Comment.objects.none()
 
         return Comment.objects.filter(post_id=post_id)
 
@@ -176,16 +123,16 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
     )
     def patch(self, request, *args, **kwargs):
         comment = get_object_or_404(Comment, id=self.kwargs['pk'], post_id=self.kwargs['post_id'])
+        user = request.user  # ✅ user 변수 추가
 
-        # ✅ '나만 보기' 게시글이면 본인만 수정 가능
-        if comment.post.visibility == 'me' and comment.post.author.profile != request.user.profile:
-            return Response({"error": "이 게시글의 댓글을 수정할 권한이 없습니다."}, status=403)
+        if comment.post.visibility == 'me' and comment.post.author.profile != user.profile:
+            raise ValidationError("이 게시글에는 작성자 본인만 댓글을 작성할 수 있습니다.")
 
-        # ✅ '서로 이웃 공개' 게시글이면 서로 이웃만 수정 가능
-        if comment.post.visibility == 'mutual' and not comment.post.author.profile.neighbors.filter(id=request.user.profile.id).exists():
-            return Response({"error": "서로 이웃만 이 게시글의 댓글을 수정할 수 있습니다."}, status=403)
+        if comment.post.visibility == 'mutual' and not comment.post.author.profile.neighbors.filter(
+                id=user.profile.id).exists():
+            raise ValidationError("서로 이웃만 이 게시글에 댓글을 작성할 수 있습니다.")
 
-        if request.user.profile != comment.author:
+        if user.profile != comment.author:
             return Response({"error": "수정할 권한이 없습니다."}, status=403)
 
         return super().patch(request, *args, **kwargs)
@@ -201,27 +148,25 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
     )
     def delete(self, request, *args, **kwargs):
         comment = get_object_or_404(Comment, id=self.kwargs['pk'], post_id=self.kwargs['post_id'])
-        user_profile = self.request.user.profile
+        user = request.user  # ✅ user 변수 추가
 
-        # ✅ '나만 보기' 게시글이면 본인만 삭제 가능
-        if comment.post.visibility == 'me' and comment.post.author.profile != user_profile:
+        if comment.post.visibility == 'me' and comment.post.author.profile != user.profile:
             return Response({"error": "이 게시글의 댓글을 삭제할 권한이 없습니다."}, status=403)
 
-        # ✅ '서로 이웃 공개' 게시글이면 서로 이웃만 삭제 가능
-        if comment.post.visibility == 'mutual' and not comment.post.author.profile.neighbors.filter(id=user_profile.id).exists():
+        if comment.post.visibility == 'mutual' and not comment.post.author.profile.neighbors.filter(
+                id=user.profile.id).exists():
             return Response({"error": "서로 이웃만 이 게시글의 댓글을 삭제할 수 있습니다."}, status=403)
 
-        # ✅ 댓글 작성자 또는 게시글 작성자만 삭제 가능
-        if user_profile != comment.author and user_profile != comment.post.author.profile:
+        if user.profile != comment.author and user.profile != comment.post.author.profile:
             return Response({"error": "삭제할 권한이 없습니다."}, status=403)
 
         if comment.is_parent:
-            # ✅ 부모 댓글이면 "삭제된 댓글입니다."로 변경 (대댓글은 그대로 남김)
             comment.content = "삭제된 댓글입니다."
-            comment.is_private = False  # ✅ 삭제된 댓글은 비공개 처리 해제
+            comment.is_private = False
             comment.save()
         else:
-            # ✅ 대댓글이면 완전히 삭제
             comment.delete()
 
         return Response({"message": "댓글이 삭제되었습니다."}, status=204)
+
+

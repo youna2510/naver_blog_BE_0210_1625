@@ -66,32 +66,32 @@ urlpatterns = [
     path('neighbors/reject/<str:from_user_id>/', NeighborRejectView.as_view(), name='neighbor-reject'),
 
     # ✅ 게시물 API (urlname 추가)
-    path('posts/<str:urlname>/', PostListView.as_view(), name='post_list'),  # 특정 유저 게시물 조회 및 작성
-    path('posts/<str:urlname>/<int:pk>/', PostDetailView.as_view(), name='post_detail'),  # 특정 게시물 상세 조회, 수정, 삭제
+    path('posts/', PostListView.as_view(), name='post_list'),  # 특정 유저 게시물 조회 및 작성
+    path('posts/<int:pk>/', PostDetailView.as_view(), name='post_detail'),  # 특정 게시물 상세 조회, 수정, 삭제
 
     # ✅ 임시 저장된 게시물 API (urlname 추가)
-    path('posts/<str:urlname>/drafts/', DraftPostListView.as_view(), name='draft_post_list'),  # 임시 저장된 게시물 목록 조회
-    path('posts/<str:urlname>/drafts/<int:pk>/', DraftPostDetailView.as_view(), name='draft_post_detail'),
+    path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),  # 임시 저장된 게시물 목록 조회
+    path('posts/drafts/<int:pk>/', DraftPostDetailView.as_view(), name='draft_post_detail'),
     # 특정 임시 저장 게시물 상세 조회
 
     # ✅ 특정 게시글의 댓글 목록 조회 & 댓글 작성
-    path('posts/<str:urlname>/<int:post_id>/comments/', CommentListView.as_view(), name='comment-list'),
-    path('posts/<str:urlname>/<int:post_id>/comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),
+    path('posts/<int:post_id>/comments/', CommentListView.as_view(), name='comment-list'),
+    path('posts/<int:post_id>/comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),
 
     # ✅ 공감(좋아요) 관련 API (urlname 추가)
 
     # 게시글 좋아요 추가/삭제
-    path('posts/<str:urlname>/<int:post_id>/heart/', ToggleHeartView.as_view(), name='toggle-heart'),
+    path('posts/<int:post_id>/heart/', ToggleHeartView.as_view(), name='toggle-heart'),
     # 게시글 좋아요 누른 유저 목록 조회
-    path('posts/<str:urlname>/<int:post_id>/heart/users/', PostHeartUsersView.as_view(), name='post-heart-users'),
+    path('posts/<int:post_id>/heart/users/', PostHeartUsersView.as_view(), name='post-heart-users'),
     # 게시글 좋아요 개수 조회
-    path('posts/<str:urlname>/<int:post_id>/heart/count/', PostHeartCountView.as_view(), name='post-heart-count'),
+    path('posts/<int:post_id>/heart/count/', PostHeartCountView.as_view(), name='post-heart-count'),
 
     # 댓글/대댓글 좋아요 추가/삭제 (`urlname` 포함)
-    path('posts/<str:urlname>/<int:post_id>/comments/<int:comment_id>/heart/', ToggleCommentHeartView.as_view(),
+    path('posts/<int:post_id>/comments/<int:comment_id>/heart/', ToggleCommentHeartView.as_view(),
          name='toggle-comment-heart'),
     # 댓글/대댓글 좋아요 개수 조회 (`urlname` 포함)
-    path('posts/<str:urlname>/<int:post_id>/comments/<int:comment_id>/heart/count/', CommentHeartCountView.as_view(),
+    path('posts/<int:post_id>/comments/<int:comment_id>/heart/count/', CommentHeartCountView.as_view(),
          name='comment-heart-count'),
 
     # ✅ Swagger 경로

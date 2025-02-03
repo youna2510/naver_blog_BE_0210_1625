@@ -18,10 +18,10 @@ class PostImageSerializer(serializers.ModelSerializer):
 class PostSerializer(serializers.ModelSerializer):
     texts = PostTextSerializer(many=True, read_only=True)
     images = PostImageSerializer(many=True, read_only=True)
-    author = serializers.ReadOnlyField(source='author.id')
+    author_name = serializers.CharField(source='author.profile.username', read_only=True)
     visibility = serializers.ChoiceField(choices=Post.VISIBILITY_CHOICES)
     class Meta:
         model = Post
-        fields = ['id', 'author', 'title', 'category', 'visibility', 'is_complete', 'texts', 'images', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'author', 'created_at', 'updated_at']
+        fields = ['id', 'author_name', 'title', 'category', 'visibility', 'is_complete', 'texts', 'images', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'author_name', 'created_at', 'updated_at']
 

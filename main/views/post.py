@@ -169,14 +169,6 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
-    def parse_json_field(self, field):
-        """ JSON 문자열을 리스트로 변환 """
-        if field:
-            try:
-                return json.loads(field)
-            except json.JSONDecodeError:
-                return []
-        return []
 
     @swagger_auto_schema(
         operation_summary="게시물 전체 수정 (사용 불가)",
@@ -202,9 +194,9 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열 (새 이미지 업로드)', type=openapi.TYPE_ARRAY,
                               items=openapi.Items(type=openapi.TYPE_FILE), required=False),
-            openapi.Parameter('captions', openapi.IN_FORM, description='이미지 캡션 배열 (JSON 형식 문자열, id 포함 가능)',
+            openapi.Parameter('captions', openapi.IN_FORM, description='이미지 캡션 배열 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter('is_representative', openapi.IN_FORM, description='대표 사진 여부 배열 (JSON 형식 문자열, id 포함 가능)',
+            openapi.Parameter('is_representative', openapi.IN_FORM, description='대표 사진 여부 배열 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('remove_images', openapi.IN_FORM, description='삭제할 이미지 ID 목록 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
@@ -230,22 +222,46 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         # ✅ 기본 필드 업데이트
         instance.title = request.data.get('title', instance.title)
         instance.category = request.data.get('category', instance.category)
-        instance.is_complete = request.data.get('is_complete',
-                                                instance.is_complete)  # is_complete 변경 허용 (true→false 불가)
+        instance.is_complete = request.data.get('is_complete', instance.is_complete)
         instance.save()
 
-        # ✅ JSON 데이터 파싱 함수
-        def parse_json_field(field):
+        # ✅ JSON 데이터 파싱 함수 (모든 JSON 필드를 안전하게 처리)
+        def parse_json_data(field):
             try:
-                return json.loads(request.data.get(field, "[]"))
+                if isinstance(request.data, list):  # 🔥 리스트 자체가 들어왔을 때
+                    return request.data
+                elif isinstance(request.data.get(field), str):  # 기존 방식 (필드가 JSON 문자열일 때)
+                    return json.loads(request.data.get(field, "[]"))
+                elif isinstance(request.data.get(field), list):  # `field` 필드가 리스트일 때
+                    return request.data.get(field, [])
+                return []
             except json.JSONDecodeError:
                 return []
 
+        # ✅ 기존 텍스트 가져오기
+        existing_texts = list(instance.texts.all())  # QuerySet을 리스트로 변환
+
+        # ✅ 요청으로 들어온 새로운 `texts` 데이터 가져오기
+        new_texts = parse_json_data('texts')
+
+        # ✅ 기존 텍스트 수정
+        for new_text in new_texts:
+            text_id = new_text.get("id")
+            text_content = new_text.get("content")
+
+            # ✅ ID가 일치하는 텍스트 찾아서 업데이트
+            for text_obj in existing_texts:
+                if text_obj.id == text_id:
+                    text_obj.content = text_content
+                    text_obj.save()
+                    break
+
+        # ✅ 이미지 관련 데이터 가져오기
         images = request.FILES.getlist('images')  # 새로 업로드된 이미지 파일 리스트
-        captions = parse_json_field('captions')  # 캡션 배열
-        is_representative_flags = parse_json_field('is_representative')  # 대표 여부 배열
-        remove_images = parse_json_field('remove_images')  # 삭제할 이미지 ID 배열
-        update_images = parse_json_field('update_images')  # 기존 이미지 ID 리스트
+        captions = parse_json_data('captions')  # 캡션 배열 (id 없음)
+        is_representative_flags = parse_json_data('is_representative')  # 대표 여부 배열 (id 없음)
+        remove_images = parse_json_data('remove_images')  # 삭제할 이미지 ID 배열
+        update_images = parse_json_data('update_images')  # 기존 이미지 ID 리스트
 
         # ✅ 기존 이미지 삭제
         PostImage.objects.filter(id__in=remove_images, post=instance).delete()
@@ -254,9 +270,20 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         for idx, image_id in enumerate(update_images):
             try:
                 post_image = PostImage.objects.get(id=image_id, post=instance)
-                if idx < len(images):  # 업로드된 새 이미지가 있다면
+
+                # ✅ 새로 업로드된 이미지가 있다면 교체
+                if idx < len(images):
                     post_image.image.delete()  # 기존 이미지 삭제
                     post_image.image = images[idx]  # 새로운 이미지 저장
+
+                # ✅ captions 리스트의 idx가 유효하다면 업데이트
+                if idx < len(captions):
+                    post_image.caption = captions[idx]
+
+                # ✅ is_representative 값도 업데이트
+                if idx < len(is_representative_flags):
+                    post_image.is_representative = is_representative_flags[idx]
+
                 post_image.save()
             except PostImage.DoesNotExist:
                 continue  # 존재하지 않으면 무시

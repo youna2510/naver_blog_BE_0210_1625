@@ -12,6 +12,19 @@ import json
 import os
 import shutil
 
+
+def to_boolean(value):
+    """
+    'true', 'false', 1, 0 같은 값을 실제 Boolean(True/False)로 변환
+    """
+    if isinstance(value, bool):  # 이미 Boolean이면 그대로 반환
+        return value
+    if isinstance(value, str):
+        return value.lower() == "true"  # "true" → True, "false" → False
+    if isinstance(value, int):
+        return bool(value)  # 1 → True, 0 → False
+    return False  # 기본적으로 False 처리
+
 class PostListView(ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]  # ✅ JSONParser 제거 (Swagger 문제 해결)
@@ -20,29 +33,36 @@ class PostListView(ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        public_posts = Q(visibility='everyone')
         my_posts = Q(author=user)
 
+        # ✅ 서로이웃 ID 리스트 가져오기
         from_neighbors = list(
             Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True))
         to_neighbors = list(
             Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True))
 
-        # ✅ 두 리스트를 합치고 중복 제거
         neighbor_ids = set(from_neighbors + to_neighbors)
-
-        # 🔥 본인의 ID는 제외
         neighbor_ids.discard(user.id)
 
         mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
+        public_posts = Q(visibility='everyone')
 
-        # 본인의 ID는 제외
-        neighbor_ids = set(neighbor_ids) - {user.id}
-
-
-        return Post.objects.filter(
-           public_posts | my_posts | mutual_neighbor_posts
+        # ✅ `is_complete=True`(작성 완료된 게시물)만 필터링
+        queryset = Post.objects.filter(
+            (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
         )
+
+        print("🔍 [GET /posts] 최종 필터링된 게시물:", queryset.values('id', 'title', 'is_complete'))
+
+        return queryset
+
+    def get_object(self):
+        """
+        개별 게시물 조회 시, `is_complete=False`(임시저장) 게시물은 404 반환
+        """
+        queryset = self.get_queryset().filter(is_complete=True)  # ✅ 강제 필터링
+        instance = get_object_or_404(queryset, pk=self.kwargs.get("pk"))  # ✅ 존재하지 않으면 404 반환
+        return instance
 
     @swagger_auto_schema(
         operation_summary="게시물 목록 조회",
@@ -61,7 +81,7 @@ class PostListView(ListCreateAPIView):
             openapi.Parameter('title', openapi.IN_FORM, description='게시물 제목', type=openapi.TYPE_STRING, required=True),
             openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING, required=True),
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING, enum=['everyone', 'mutual', 'me'], required=False),
-            openapi.Parameter('is_complete', openapi.IN_FORM, description='작성 상태', type=openapi.TYPE_STRING, enum=['true', 'false'], required=False),
+            openapi.Parameter('is_complete', openapi.IN_FORM, description='작성 상태', type=openapi.TYPE_BOOLEAN, enum=['true', 'false'], required=False),
             openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열', type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_FILE), required=False),
             openapi.Parameter('captions', openapi.IN_FORM, description='이미지 캡션 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
@@ -73,7 +93,7 @@ class PostListView(ListCreateAPIView):
         title = request.data.get('title')
         category = request.data.get('category')
         visibility = request.data.get('visibility', 'everyone')
-        is_complete = request.data.get('is_complete', 'false')
+        is_complete = to_boolean(request.data.get('is_complete', False))
 
         # JSON 문자열을 파싱해서 리스트로 변환
         def parse_json_field(field):
@@ -99,7 +119,7 @@ class PostListView(ListCreateAPIView):
             title=title,
             category=category,
             visibility=visibility,
-            is_complete=is_complete  # ✅ 임시 저장 가능하도록 수정
+            is_complete=is_complete
         )
 
         # ✅ PostImage 생성 (이미지가 있을 경우)
@@ -124,12 +144,12 @@ class PostListView(ListCreateAPIView):
         for text in texts:
             PostText.objects.create(post=post, content=text)
 
-        # ✅ 응답 메시지 구분
-        serializer = PostSerializer(post)
-        if is_complete == "true":
-            return Response({"message": "게시물이 성공적으로 생성되었습니다.", "post": serializer.data}, status=201)
-        else:
-            return Response({"message": "게시물이 임시 저장되었습니다.", "post": serializer.data}, status=201)
+            # ✅ 응답 메시지 구분
+            serializer = PostSerializer(post)
+            if is_complete:
+                return Response({"message": "게시물이 성공적으로 생성되었습니다.", "post": serializer.data}, status=201)
+            else:
+                return Response({"message": "게시물이 임시 저장되었습니다.", "post": serializer.data}, status=201)
 
 
 class PostDetailView(RetrieveUpdateDestroyAPIView):
@@ -151,16 +171,29 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         to_neighbors = list(
             Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True))
 
-        # ✅ 두 리스트를 합치고 중복 제거
         neighbor_ids = set(from_neighbors + to_neighbors)
-
-        # 🔥 본인의 ID는 제외
-        neighbor_ids.discard(user.id)
+        neighbor_ids.discard(user.id)  # 본인 ID 제외
 
         mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
         public_posts = Q(visibility='everyone')
 
-        return Post.objects.filter(public_posts | my_posts | mutual_neighbor_posts)
+        # ✅ `is_complete=True`(작성 완료된 게시물)만 필터링
+        queryset = Post.objects.filter(
+            (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
+        )
+
+        print("🔍 [GET /posts] 최종 필터링된 게시물:", queryset.values('id', 'title', 'is_complete'))
+
+        return queryset
+
+    def get_object(self):
+        """
+        개별 게시물 조회 시, `is_complete=False`(임시저장) 게시물은 404 반환
+        """
+        queryset = self.get_queryset().filter(is_complete=True)  # ✅ 강제 필터링
+        instance = get_object_or_404(queryset, pk=self.kwargs.get("pk"))  # ✅ 존재하지 않으면 404 반환
+        return instance
+
     @swagger_auto_schema(
         operation_summary="게시물 상세 조회",
         operation_description="특정 게시물의 텍스트와 이미지를 포함한 상세 정보를 조회합니다.",
@@ -189,7 +222,7 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
                               enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM,
                               description='작성 상태 (true: 작성 완료, false: 임시 저장 → 변경 가능, 단 true → false 변경 불가)',
-                              type=openapi.TYPE_STRING, enum=['true', 'false'], required=False),  # ✅ 설명 추가
+                              type=openapi.TYPE_BOOLEAN, enum=['true', 'false'], required=False),  # ✅ 설명 추가
             openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열, id 포함 가능)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열 (새 이미지 업로드)', type=openapi.TYPE_ARRAY,
@@ -208,10 +241,12 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
     def patch(self, request, *args, **kwargs):
         instance = self.get_object()
 
-        # ✅ `is_complete=true`인 게시물은 `false`로 변경할 수 없음
-        new_is_complete = request.data.get('is_complete', instance.is_complete)
-        if instance.is_complete == "true" and new_is_complete == "false":
-            return Response({"error": "작성 완료된 게시물은 다시 임시 저장 상태로 변경할 수 없습니다."}, status=400)
+        # ✅ `is_complete=True`인 게시물은 `False`로 변경할 수 없음
+        if "is_complete" in request.data:
+            new_is_complete = to_boolean(request.data["is_complete"])  # 🔥 Boolean 변환 적용
+            if instance.is_complete and not new_is_complete:
+                return Response({"error": "작성 완료된 게시물은 다시 임시 저장 상태로 변경할 수 없습니다."}, status=400)
+            instance.is_complete = new_is_complete  # ✅ Boolean 값 저장)
 
         # ✅ visibility 값 검증 및 업데이트
         new_visibility = request.data.get('visibility', instance.visibility)
@@ -222,7 +257,7 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         # ✅ 기본 필드 업데이트
         instance.title = request.data.get('title', instance.title)
         instance.category = request.data.get('category', instance.category)
-        instance.is_complete = request.data.get('is_complete', instance.is_complete)
+        instance.is_complete = new_is_complete  # 🔥 Boolean 값 직접 저장
         instance.save()
 
         # ✅ JSON 데이터 파싱 함수 (모든 JSON 필드를 안전하게 처리)
@@ -380,4 +415,25 @@ class DraftPostDetailView(RetrieveAPIView):
         """
         요청한 사용자의 특정 임시 저장된 게시물만 반환
         """
-        return Post.objects.filter(author=self.request.user, is_complete='false')
+        return Post.objects.filter(author=self.request.user, is_complete=False)
+class DraftPostListView(ListAPIView):
+    """
+    임시 저장된 게시물만 반환하는 뷰
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PostSerializer
+
+    @swagger_auto_schema(
+        operation_summary="임시 저장된 게시물 목록 조회",
+        operation_description="로그인한 사용자의 임시 저장된 게시물만 반환합니다.",
+        responses={200: PostSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        """
+        요청한 사용자의 임시 저장된 게시물만 반환
+        """
+        return Post.objects.filter(author=self.request.user, is_complete=False)  # ✅ Boolean 값으로 필터링
+

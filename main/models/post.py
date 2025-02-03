@@ -36,10 +36,8 @@ class Post(models.Model):
         default='everyone',
         verbose_name="공개 범위"
     )
-    is_complete = models.CharField(
-        max_length=5,
-        choices=COMPLETE_CHOICES,
-        default='false',  # 기본값은 임시 저장
+    is_complete = models.BooleanField(
+        default=False,  # 기본값은 False (임시 저장)
         verbose_name="작성 상태"
     )
     like_count = models.PositiveIntegerField(default=0)  # ✅ 하트 개수 저장

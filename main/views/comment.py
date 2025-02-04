@@ -12,6 +12,7 @@ from main.serializers.comment import CommentSerializer
 from main.models.profile import Profile  # ✅ Profile 모델 임포트
 from django.contrib.auth import get_user_model
 from rest_framework.response import Response
+from django.http import Http404
 
 User = get_user_model()  # Django 기본 User 모델 가져오기
 
@@ -168,5 +169,3 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
             comment.delete()
 
         return Response({"message": "댓글이 삭제되었습니다."}, status=204)
-
-

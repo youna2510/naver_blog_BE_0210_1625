@@ -110,3 +110,6 @@ class CommentHeartCountView(generics.RetrieveAPIView):
         return Response({"like_count": like_count}, status=status.HTTP_200_OK)
 
 
+
+
+

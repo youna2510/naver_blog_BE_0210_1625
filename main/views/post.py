@@ -1,10 +1,11 @@
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, RetrieveAPIView
+from rest_framework.generics import CreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, RetrieveAPIView
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework import status
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from ..models import Post, PostText, PostImage
+from ..models import Post, PostText, PostImage,CustomUser,Profile
 from ..models.neighbor import Neighbor
 from django.db.models import Q
 from ..serializers import PostSerializer
@@ -12,6 +13,7 @@ import json
 import os
 import shutil
 from django.shortcuts import get_object_or_404
+from django.utils.timezone import now, timedelta
 
 def to_boolean(value):
     """
@@ -25,54 +27,77 @@ def to_boolean(value):
         return bool(value)  # 1 → True, 0 → False
     return False  # 기본적으로 False 처리
 
-class PostListView(ListCreateAPIView):
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+class PostListView(ListAPIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]  # ✅ JSONParser 제거 (Swagger 문제 해결)
+    parser_classes = [JSONParser]
     queryset = Post.objects.all()
     serializer_class = PostSerializer
 
     def get_queryset(self):
+        urlname = self.request.query_params.get('urlname', None)
+        category = self.request.query_params.get('category', None)
+        pk = self.request.query_params.get('pk', None)
+
         user = self.request.user
+        if urlname:
+            try:
+                profile = Profile.objects.get(urlname=urlname)
+                user = profile.user
+            except Profile.DoesNotExist:
+                return Post.objects.none()
+
         my_posts = Q(author=user)
-
-        # ✅ 서로이웃 ID 리스트 가져오기
         from_neighbors = list(
-            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True))
+            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True)
+        )
         to_neighbors = list(
-            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True))
-
+            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True)
+        )
         neighbor_ids = set(from_neighbors + to_neighbors)
         neighbor_ids.discard(user.id)
 
         mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
         public_posts = Q(visibility='everyone')
 
-        # ✅ `is_complete=True`(작성 완료된 게시물)만 필터링
         queryset = Post.objects.filter(
             (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
         )
 
-        print("🔍 [GET /posts] 최종 필터링된 게시물:", queryset.values('id', 'title', 'is_complete'))
+        if category:
+            queryset = queryset.filter(category=category)
+
+        if pk:
+            queryset = queryset.filter(pk=pk)
 
         return queryset
 
-    def get_object(self):
-        """
-        개별 게시물 조회 시, `is_complete=False`(임시저장) 게시물은 404 반환
-        """
-        queryset = self.get_queryset().filter(is_complete=True)  # ✅ 강제 필터링
-        instance = get_object_or_404(queryset, pk=self.kwargs.get("pk"))  # ✅ 존재하지 않으면 404 반환
-        return instance
-
     @swagger_auto_schema(
-        operation_summary="게시물 목록 조회",
-        operation_description="로그인한 사용자가 볼 수 있는 게시물 목록을 반환합니다.",
+        manual_parameters=[
+            openapi.Parameter('urlname', openapi.IN_QUERY, description="조회할 사용자의 고유 ID", required=False, type=openapi.TYPE_STRING),
+            openapi.Parameter('category', openapi.IN_QUERY, description="조회할 게시물 카테고리", required=False, type=openapi.TYPE_STRING),
+            openapi.Parameter('pk', openapi.IN_QUERY, description="조회할 게시물 ID", required=False, type=openapi.TYPE_INTEGER),
+        ],
         responses={200: PostSerializer(many=True)}
     )
-    def list(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
         queryset = self.get_queryset()
+
+        pk = self.request.query_params.get('pk', None)
+        if pk:
+            post = get_object_or_404(queryset, pk=pk)
+            serializer = self.get_serializer(post)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class PostCreateView(CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]  # ✅ POST 요청에서 multipart/form-data 처리
+    serializer_class = PostSerializer
 
     @swagger_auto_schema(
         operation_summary="게시물 생성 (multipart/form-data 사용)",
@@ -95,7 +120,7 @@ class PostListView(ListCreateAPIView):
         visibility = request.data.get('visibility', 'everyone')
         is_complete = to_boolean(request.data.get('is_complete', False))
 
-        # JSON 문자열을 파싱해서 리스트로 변환
+        # JSON 문자열을 리스트로 변환하는 함수
         def parse_json_field(field):
             if field:
                 try:
@@ -109,11 +134,9 @@ class PostListView(ListCreateAPIView):
         is_representative_flags = parse_json_field(request.data.get('is_representative'))
         images = request.FILES.getlist('images', [])
 
-        # ✅ 필수 데이터 검증
         if not title or not category:
             return Response({"error": "title과 category는 필수 항목입니다."}, status=400)
 
-        # ✅ 게시물 생성
         post = Post.objects.create(
             author=request.user,
             title=title,
@@ -122,7 +145,7 @@ class PostListView(ListCreateAPIView):
             is_complete=is_complete
         )
 
-        # ✅ PostImage 생성 (이미지가 있을 경우)
+        # 이미지 저장
         created_images = []
         for idx, image in enumerate(images):
             caption = captions[idx] if idx < len(captions) else None
@@ -135,22 +158,110 @@ class PostListView(ListCreateAPIView):
             )
             created_images.append(post_image)
 
-        # ✅ 대표 이미지가 없을 경우 첫 번째 이미지를 대표로 설정
         if not any(img.is_representative for img in created_images) and created_images:
             created_images[0].is_representative = True
             created_images[0].save()
 
-        # ✅ PostText 생성
         for text in texts:
             PostText.objects.create(post=post, content=text)
 
-            # ✅ 응답 메시지 구분
-            serializer = PostSerializer(post)
-            if is_complete:
-                return Response({"message": "게시물이 성공적으로 생성되었습니다.", "post": serializer.data}, status=201)
-            else:
-                return Response({"message": "게시물이 임시 저장되었습니다.", "post": serializer.data}, status=201)
+        serializer = PostSerializer(post)
+        if is_complete:
+            return Response({"message": "게시물이 성공적으로 생성되었습니다.", "post": serializer.data}, status=201)
+        else:
+            return Response({"message": "게시물이 임시 저장되었습니다.", "post": serializer.data}, status=201)
 
+class PostMyView(ListAPIView):
+    """
+    로그인된 유저가 작성한 모든 게시물 목록을 조회하는 API
+    쿼리 파라미터로 category와 pk를 통해 필터링 가능
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PostSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        category = self.request.query_params.get('category', None)
+        pk = self.request.query_params.get('pk', None)
+
+        # 로그인된 유저가 작성한 게시물만 필터링
+        queryset = Post.objects.filter(author=user)
+
+        # 'category' 파라미터가 있으면 해당 카테고리로 필터링
+        if category:
+            queryset = queryset.filter(category=category)
+
+        # 'pk' 파라미터가 있으면 해당 게시물 ID로 필터링
+        if pk:
+            queryset = queryset.filter(pk=pk)
+
+        return queryset
+
+    @swagger_auto_schema(
+        operation_summary="내가 작성한 게시물 목록 조회",
+        operation_description="로그인된 유저가 작성한 모든 게시물 목록을 반환합니다. 쿼리 파라미터로 category와 pk를 통해 필터링 가능합니다.",
+        responses={200: PostSerializer(many=True)},
+        manual_parameters=[
+            openapi.Parameter(
+                'category',
+                openapi.IN_QUERY,
+                description="게시물의 카테고리로 필터링합니다. 예: 'Travel', 'Food' 등.",
+                required=False,
+                type=openapi.TYPE_STRING
+            ),
+            openapi.Parameter(
+                'pk',
+                openapi.IN_QUERY,
+                description="게시물 ID로 필터링합니다.",
+                required=False,
+                type=openapi.TYPE_INTEGER
+            )
+        ]
+    )
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class PostMutualView(ListAPIView):
+    """
+    서로 이웃(mutual)인 사람들의 최근 1주일 이내 게시물 목록을 조회하는 API
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PostSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # ✅ 서로이웃 ID 리스트 가져오기
+        from_neighbors = list(
+            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True)
+        )
+        to_neighbors = list(
+            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True)
+        )
+        neighbor_ids = set(from_neighbors + to_neighbors)
+        neighbor_ids.discard(user.id)
+
+        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
+        one_week_ago = now() - timedelta(days=7)
+
+        # ✅ 최근 1주일 이내 작성된 서로 이웃의 게시물만 반환
+        queryset = Post.objects.filter(
+            mutual_neighbor_posts & Q(is_complete=True) & Q(created_at__gte=one_week_ago)
+        )
+
+        return queryset
+
+    @swagger_auto_schema(
+        operation_summary="서로 이웃 게시물 목록 조회",
+        operation_description="서로 이웃(mutual)인 사람들의 최근 1주일 이내 게시물 목록을 반환합니다.",
+        responses={200: PostSerializer(many=True)}
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class PostDetailView(RetrieveUpdateDestroyAPIView):
     """
@@ -182,17 +293,8 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
             (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
         )
 
-        print("🔍 [GET /posts] 최종 필터링된 게시물:", queryset.values('id', 'title', 'is_complete'))
 
         return queryset
-
-    def get_object(self):
-        """
-        개별 게시물 조회 시, `is_complete=False`(임시저장) 게시물은 404 반환
-        """
-        queryset = self.get_queryset().filter(is_complete=True)  # ✅ 강제 필터링
-        instance = get_object_or_404(queryset, pk=self.kwargs.get("pk"))  # ✅ 존재하지 않으면 404 반환
-        return instance
 
     @swagger_auto_schema(
         operation_summary="게시물 상세 조회",
@@ -201,7 +303,6 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
-
 
     @swagger_auto_schema(
         operation_summary="게시물 전체 수정 (사용 불가)",

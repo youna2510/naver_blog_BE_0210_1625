@@ -139,9 +139,3 @@ class PostHeartCountView(generics.RetrieveAPIView):
             return Response({"error": "서로 이웃만 이 게시글의 하트 개수를 조회할 수 있습니다."}, status=status.HTTP_403_FORBIDDEN)
 
         return Response({"like_count": post.like_count}, status=status.HTTP_200_OK)
-
-
-
-
-
-

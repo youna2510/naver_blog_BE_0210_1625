@@ -12,7 +12,7 @@ from ..serializers import PostSerializer
 import json
 import os
 import shutil
-from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now, timedelta
 
@@ -28,8 +28,7 @@ def to_boolean(value):
         return bool(value)  # 1 → True, 0 → False
     return False  # 기본적으로 False 처리
 
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
+
 
 class PostListView(ListAPIView):
     permission_classes = [IsAuthenticated]
@@ -41,6 +40,10 @@ class PostListView(ListAPIView):
         urlname = self.request.query_params.get('urlname', None)
         category = self.request.query_params.get('category', None)
         pk = self.request.query_params.get('pk', None)
+
+        # category만 존재할 경우 에러 처리
+        if category and not (urlname or pk):
+            raise ValidationError("카테고리만 입력된 경우는 허용하지 않습니다.")
 
         user = self.request.user
         if urlname:

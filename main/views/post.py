@@ -12,6 +12,7 @@ from ..serializers import PostSerializer
 import json
 import os
 import shutil
+from rest_framework.exceptions import MethodNotAllowed
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now, timedelta
 
@@ -108,6 +109,12 @@ class PostCreateView(CreateAPIView):
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING, enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM, description='작성 상태', type=openapi.TYPE_BOOLEAN, enum=['true', 'false'], required=False),
             openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('fonts', openapi.IN_FORM, description='글씨체 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING,
+                              required=False),
+            openapi.Parameter('font_sizes', openapi.IN_FORM, description='글씨 크기 배열 (JSON 형식 문자열)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('is_bolds', openapi.IN_FORM, description='글씨 굵기 배열 (JSON 형식 문자열)',
+                              type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열', type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_FILE), required=False),
             openapi.Parameter('captions', openapi.IN_FORM, description='이미지 캡션 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('is_representative', openapi.IN_FORM, description='대표 사진 여부 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
@@ -130,6 +137,9 @@ class PostCreateView(CreateAPIView):
             return []
 
         texts = parse_json_field(request.data.get('texts'))
+        fonts = parse_json_field(request.data.get('fonts'))
+        font_sizes = parse_json_field(request.data.get('font_sizes'))
+        is_bolds = parse_json_field(request.data.get('is_bolds'))
         captions = parse_json_field(request.data.get('captions'))
         is_representative_flags = parse_json_field(request.data.get('is_representative'))
         images = request.FILES.getlist('images', [])
@@ -144,6 +154,13 @@ class PostCreateView(CreateAPIView):
             visibility=visibility,
             is_complete=is_complete
         )
+
+        # 텍스트 저장 (글씨체, 크기, 굵기 포함)
+        for idx, text in enumerate(texts):
+            font = fonts[idx] if idx < len(fonts) else "default"
+            font_size = font_sizes[idx] if idx < len(font_sizes) else 16
+            is_bold = is_bolds[idx] if idx < len(is_bolds) else False
+            PostText.objects.create(post=post, content=text, font=font, font_size=font_size, is_bold=is_bold)
 
         # 이미지 저장
         created_images = []
@@ -162,8 +179,6 @@ class PostCreateView(CreateAPIView):
             created_images[0].is_representative = True
             created_images[0].save()
 
-        for text in texts:
-            PostText.objects.create(post=post, content=text)
 
         serializer = PostSerializer(post)
         if is_complete:
@@ -184,8 +199,8 @@ class PostMyView(ListAPIView):
         category = self.request.query_params.get('category', None)
         pk = self.request.query_params.get('pk', None)
 
-        # 로그인된 유저가 작성한 게시물만 필터링
-        queryset = Post.objects.filter(author=user)
+        # ✅ 로그인된 유저가 작성한 게시물 중 is_complete=True인 게시물만 조회
+        queryset = Post.objects.filter(author=user, is_complete=True)
 
         # 'category' 파라미터가 있으면 해당 카테고리로 필터링
         if category:
@@ -221,6 +236,51 @@ class PostMyView(ListAPIView):
     def get(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class PostMyDetailView(RetrieveAPIView):
+    """
+    로그인된 유저가 작성한 특정 게시물의 상세 정보를 조회하는 API
+    쿼리 파라미터가 아닌 게시물 ID로만 조회 가능
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PostSerializer
+    queryset = Post.objects.all()  # 기본적인 Post 객체 조회
+    parser_classes = [MultiPartParser, FormParser]  # 필요시 추가
+
+    swagger_fake_view = True  # Swagger 문서 생성을 위한 가짜 뷰 추가
+
+    def get_queryset(self):
+        user = self.request.user
+        pk = self.kwargs.get('pk')  # 'pk'를 안전하게 가져오기
+
+        if pk is None:
+            # 'pk'가 없을 경우 적절한 처리
+            return Post.objects.none()  # 빈 쿼리셋 반환
+
+        # 로그인된 유저가 작성한 게시물만 조회
+        return Post.objects.filter(author=user, pk=pk, is_complete=True)
+
+    @swagger_auto_schema(
+        operation_summary="내가 작성한 게시물 상세 조회",
+        operation_description="로그인된 유저가 작성한 특정 게시물의 상세 정보를 조회합니다.",
+        responses={200: PostSerializer()},
+        manual_parameters=[
+            openapi.Parameter(
+                'id',
+                openapi.IN_PATH,
+                description="게시물 ID를 입력합니다.",
+                required=True,
+                type=openapi.TYPE_INTEGER
+            )
+        ]
+    )
+    def get(self, request, *args, **kwargs):
+        """
+        GET 메서드로 게시물의 상세 정보를 조회하는 로직
+        """
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=False)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class PostMutualView(ListAPIView):
@@ -293,16 +353,46 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
             (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
         )
 
-
         return queryset
 
     @swagger_auto_schema(
         operation_summary="게시물 상세 조회",
-        operation_description="특정 게시물의 텍스트와 이미지를 포함한 상세 정보를 조회합니다.",
+        operation_description="특정 게시물의 텍스트와 이미지를 포함한 상세 정보를 조회합니다. PUT, PATCH, DELETE 요청은 허용되지 않습니다.",
         responses={200: PostSerializer()},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_summary="PUT 요청은 허용되지 않습니다.",
+        operation_description="PUT 요청은 이 API에서 허용되지 않습니다.",
+    )
+    def put(self, request, *args, **kwargs):
+        raise MethodNotAllowed("PUT method is not allowed for this view.")  # PUT 요청에 대한 405 에러 발생
+
+    @swagger_auto_schema(
+        operation_summary="PATCH 요청은 허용되지 않습니다.",
+        operation_description="PATCH 요청은 이 API에서 허용되지 않습니다.",
+    )
+    def patch(self, request, *args, **kwargs):
+        raise MethodNotAllowed("PATCH method is not allowed for this view.")  # PATCH 요청에 대한 405 에러 발생
+
+    @swagger_auto_schema(
+        operation_summary="DELETE 요청은 허용되지 않습니다.",
+        operation_description="DELETE 요청은 이 API에서 허용되지 않습니다.",
+    )
+    def delete(self, request, *args, **kwargs):
+        raise MethodNotAllowed("DELETE method is not allowed for this view.")  # DELETE 요청에 대한 405 에러 발생
+
+class PostManageView(RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = PostSerializer
+    queryset = Post.objects.all()  # ✅ 누락된 queryset 추가
+    parser_classes = [MultiPartParser, FormParser]  # ✅ 누락된 parser_classes 추가
+
+    def get_queryset(self):
+        user = self.request.user
+        return Post.objects.filter(author=user)  # ✅ 본인이 작성한 게시물만 수정/삭제 가능
 
     @swagger_auto_schema(
         operation_summary="게시물 전체 수정 (사용 불가)",
@@ -323,18 +413,28 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
                               enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM,
                               description='작성 상태 (true: 작성 완료, false: 임시 저장 → 변경 가능, 단 true → false 변경 불가)',
-                              type=openapi.TYPE_BOOLEAN, enum=['true', 'false'], required=False),  # ✅ 설명 추가
-            openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열, id 포함 가능)',
+                              type=openapi.TYPE_BOOLEAN, required=False),
+            openapi.Parameter('update_texts', openapi.IN_FORM, description='수정할 텍스트 ID 목록 (JSON 형식)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('remove_texts', openapi.IN_FORM, description='삭제할 텍스트 ID 목록 (JSON 형식)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('content', openapi.IN_FORM, description='수정할 텍스트 내용 배열 (JSON 형식)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('font', openapi.IN_FORM, description='글씨체 배열 (JSON 형식)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('font_size', openapi.IN_FORM, description='글씨 크기 배열 (JSON 형식)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('is_bold', openapi.IN_FORM, description='글씨 굵기 배열 (JSON 형식)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('remove_images', openapi.IN_FORM, description='삭제할 이미지 ID 목록 (JSON 형식 문자열)',
+                              type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter('update_images', openapi.IN_FORM, description='수정할 이미지 ID 목록 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('images', openapi.IN_FORM, description='이미지 파일 배열 (새 이미지 업로드)', type=openapi.TYPE_ARRAY,
                               items=openapi.Items(type=openapi.TYPE_FILE), required=False),
             openapi.Parameter('captions', openapi.IN_FORM, description='이미지 캡션 배열 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('is_representative', openapi.IN_FORM, description='대표 사진 여부 배열 (JSON 형식 문자열)',
-                              type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter('remove_images', openapi.IN_FORM, description='삭제할 이미지 ID 목록 (JSON 형식 문자열)',
-                              type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter('update_images', openapi.IN_FORM, description='수정할 이미지 ID 목록 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
         ],
         responses={200: PostSerializer()},
@@ -358,7 +458,6 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
         # ✅ 기본 필드 업데이트
         instance.title = request.data.get('title', instance.title)
         instance.category = request.data.get('category', instance.category)
-        instance.is_complete = new_is_complete  # 🔥 Boolean 값 직접 저장
         instance.save()
 
         # ✅ JSON 데이터 파싱 함수 (모든 JSON 필드를 안전하게 처리)
@@ -374,23 +473,44 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
             except json.JSONDecodeError:
                 return []
 
-        # ✅ 기존 텍스트 가져오기
-        existing_texts = list(instance.texts.all())  # QuerySet을 리스트로 변환
+        # ✅ 텍스트 수정 / 삭제
+        update_text_ids = parse_json_data('update_texts')
+        remove_text_ids = parse_json_data('remove_texts')
+        updated_contents = parse_json_data('content')
+        updated_fonts = parse_json_data('font')
+        updated_font_sizes = parse_json_data('font_size')
+        updated_is_bolds = parse_json_data('is_bold')
 
-        # ✅ 요청으로 들어온 새로운 `texts` 데이터 가져오기
-        new_texts = parse_json_data('texts')
+        # 기존 이미지 삭제
+        PostText.objects.filter(id__in=remove_text_ids, post=instance).delete()
 
-        # ✅ 기존 텍스트 수정
-        for new_text in new_texts:
-            text_id = new_text.get("id")
-            text_content = new_text.get("content")
+        # 기존 이미지 수정
+        for idx, text_id in enumerate(update_text_ids):
+            try:
+                text_obj = PostText.objects.get(id=text_id, post=instance)
 
-            # ✅ ID가 일치하는 텍스트 찾아서 업데이트
-            for text_obj in existing_texts:
-                if text_obj.id == text_id:
-                    text_obj.content = text_content
-                    text_obj.save()
-                    break
+                if idx < len(updated_contents):
+                    text_obj.content = updated_contents[idx]
+                if idx < len(updated_fonts):
+                    text_obj.font = updated_fonts[idx]
+                if idx < len(updated_font_sizes):
+                    text_obj.font_size = updated_font_sizes[idx]
+                if idx < len(updated_is_bolds):
+                    text_obj.is_bold = updated_is_bolds[idx]
+
+                text_obj.save()
+            except PostText.DoesNotExist:
+                continue
+        # ✅ 새 텍스트 추가 (remove_texts와 update_texts가 비어있다면)
+        if not remove_text_ids and not update_text_ids:
+            for idx in range(len(updated_contents)):
+                PostText.objects.create(
+                    post=instance,
+                    content=updated_contents[idx],  # 필수
+                    font=updated_fonts[idx] if idx < len(updated_fonts) else "nanum_gothic",  # 기본값: 나눔고딕
+                    font_size=updated_font_sizes[idx] if idx < len(updated_font_sizes) else 15,  # 기본값: 15
+                    is_bold=updated_is_bolds[idx] if idx < len(updated_is_bolds) else False,  # 기본값: False
+                )
 
         # ✅ 이미지 관련 데이터 가져오기
         images = request.FILES.getlist('images')  # 새로 업로드된 이미지 파일 리스트
@@ -474,6 +594,10 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
 
         instance.delete()
         return Response(status=204)
+
+
+
+
 
 class DraftPostListView(ListAPIView):
     """

@@ -5,7 +5,7 @@ from ..models.post import Post, PostText, PostImage
 class PostTextSerializer(serializers.ModelSerializer):
     class Meta:
         model = PostText
-        fields = ['id', 'content']  # 'id' 필드를 추가
+        fields = ['id', 'content', 'font', 'font_size', 'is_bold']
 
 
 class PostImageSerializer(serializers.ModelSerializer):

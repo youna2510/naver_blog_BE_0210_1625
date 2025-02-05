@@ -22,7 +22,7 @@ from main.views.signup import SignupView
 from main.views.login import LoginView
 from main.views.logout import LogoutView
 from main.views.profile import ProfileDetailView, ProfilePublicView, ProfileUrlnameUpdateView
-from main.views.post import PostDetailView,PostMyView,PostMutualView,PostListView,PostCreateView,DraftPostListView,DraftPostDetailView
+from main.views.post import PostDetailView,PostMyView,PostMyDetailView,PostMutualView,PostManageView,PostListView,PostCreateView,DraftPostListView,DraftPostDetailView
 from main.views.comment import CommentListView, CommentDetailView
 from main.views.heart import ToggleHeartView, PostHeartUsersView, PostHeartCountView
 from main.views.commentHeart import ToggleCommentHeartView, CommentHeartCountView
@@ -65,22 +65,25 @@ urlpatterns = [
     path('neighbors/accept/<str:from_user_id>/', NeighborAcceptView.as_view(), name='neighbor-accept'),
     path('neighbors/reject/<str:from_user_id>/', NeighborRejectView.as_view(), name='neighbor-reject'),
 
-    # ✅ 게시물 기본 API
+    # ✅ 게시물 관련 API
 
-    # 내 게시물 목록 조회 API,  쿼리 파라미터 활용 카테고리
-    path('posts/me/', PostMyView.as_view(), name='post-my-list'),
-    # GET (타인 게시물 조회 API, 쿼리 파라미터 활용 urlname, 카테고리, <int:pk> 쿼리 파라미터로 활용)
-    path('posts/', PostListView.as_view(), name='post-list'),
-    path('posts/create/', PostCreateView.as_view(), name='post-create'),  # POST (게시물 생성)
-    path('posts/<int:pk>/', PostDetailView.as_view(), name='post_detail'),  # 특정 게시물 상세 조회, 수정, 삭제
+    # 내 게시물 관련 API
+    path('posts/me/', PostMyView.as_view(), name='post-my-list'),  # 내가 작성한 게시물 목록 조회, 쿼리 파라미터 활용!
+    path('posts/me/<int:pk>/', PostMyDetailView.as_view(), name='post-my-detail'),  # 내가 작성한 게시물 상세 조회
+    path('posts/me/create/', PostCreateView.as_view(), name='post-create'),  # 게시물 생성 (POST)
+    path('posts/me/<int:pk>/manage/', PostManageView.as_view(), name='post-manage'),  # 게시물 수정/삭제 (PUT, PATCH, DELETE)
 
-    # (서로)이웃 새글 API
+    #타인 게시물 관련 API
+
+    path('posts/', PostListView.as_view(), name='post-list'),  # 타인 게시물 목록 조회 (GET, 쿼리 파라미터 활용)
+    path('posts/<int:pk>/', PostDetailView.as_view(), name='post-detail'),  # 타인 게시물 상세 조회 (GET)
+
+    #서로 이웃 새글 API
     path('post/mutual/', PostMutualView.as_view(), name='post-mutual'),
 
-    # ✅ 임시 저장된 게시물 API
+    #임시 저장된 게시물 관련 API
     path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),  # 임시 저장된 게시물 목록 조회
-    path('posts/drafts/<int:pk>/', DraftPostDetailView.as_view(), name='draft_post_detail'),
-    # 특정 임시 저장 게시물 상세 조회
+    path('posts/drafts/<int:pk>/', DraftPostDetailView.as_view(), name='draft_post_detail'),  # 임시 저장된 게시물 상세 조회
 
     # ✅ 특정 게시글의 댓글 목록 조회 & 댓글 작성
     path('posts/<int:post_id>/comments/', CommentListView.as_view(), name='comment-list'),

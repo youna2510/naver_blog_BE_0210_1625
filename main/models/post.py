@@ -50,22 +50,18 @@ class Post(models.Model):
 
 class PostText(models.Model):
     FONT_CHOICES = [
-        ('default', '기본서체'),
         ('nanum_gothic', '나눔고딕'),
-        ('nanum_myeongjo', '나눔명조'),
-        ('bareun_gothic', '바른고딕'),
-        ('nanum_square', '나눔스퀘어'),
-        ('maruburi', '마루부리'),
-        ('restart', '다시시작해'),
-        ('bareun_hippie', '바른히피'),
-        ('our_daughter', '우리딸손글씨'),
+        ('Noto Serif Korean', 'Noto Serif Korean'),
+        ('Gaegu', 'Gaegu'),
+        ('Nanum Pen Script', 'Nanum Pen Script'),
+        ('Black And White Picture', 'Black And White Picture'),
     ]
 
     FONT_SIZE_CHOICES = [11, 13, 15, 16, 19, 24, 28, 30, 34, 38]
 
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="texts")
     content = models.TextField()
-    font = models.CharField(max_length=20, choices=FONT_CHOICES, default='nanum_gothic')  # 기본값: 나눔고딕
+    font = models.CharField(max_length=25, choices=FONT_CHOICES, default='nanum_gothic')  # 기본값: 나눔고딕
     font_size = models.IntegerField(choices=[(size, f"{size}px") for size in FONT_SIZE_CHOICES], default=15)  # 기본값: 15
     is_bold = models.BooleanField(default=False)  # 기본값: False
     def __str__(self):

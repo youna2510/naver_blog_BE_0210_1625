@@ -160,8 +160,8 @@ class PostCreateView(CreateAPIView):
 
         # 텍스트 저장 (글씨체, 크기, 굵기 포함)
         for idx, text in enumerate(texts):
-            font = fonts[idx] if idx < len(fonts) else "default"
-            font_size = font_sizes[idx] if idx < len(font_sizes) else 16
+            font = fonts[idx] if idx < len(fonts) else "nanum_gothic"
+            font_size = font_sizes[idx] if idx < len(font_sizes) else 15
             is_bold = is_bolds[idx] if idx < len(is_bolds) else False
             PostText.objects.create(post=post, content=text, font=font, font_size=font_size, is_bold=is_bold)
 
@@ -328,7 +328,7 @@ class PostMutualView(ListAPIView):
 
 class PostDetailView(RetrieveUpdateDestroyAPIView):
     """
-    게시물 상세 조회, 수정, 삭제 뷰
+    게시물 상세 조회 뷰
     """
     permission_classes = [IsAuthenticated]
     queryset = Post.objects.all()
@@ -484,10 +484,10 @@ class PostManageView(RetrieveUpdateDestroyAPIView):
         updated_font_sizes = parse_json_data('font_size')
         updated_is_bolds = parse_json_data('is_bold')
 
-        # 기존 이미지 삭제
+        # 기존 텍스트 삭제
         PostText.objects.filter(id__in=remove_text_ids, post=instance).delete()
 
-        # 기존 이미지 수정
+        # 기존 텍스트 수정
         for idx, text_id in enumerate(update_text_ids):
             try:
                 text_obj = PostText.objects.get(id=text_id, post=instance)

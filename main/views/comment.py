@@ -61,7 +61,10 @@ class CommentListView(ListCreateAPIView):
         if post.visibility == 'mutual' and not post.author.profile.neighbors.filter(id=user.profile.id).exists():
             return Comment.objects.none()
 
-        return Comment.objects.filter(post_id=post_id)
+        # ✅ 댓글과 대댓글을 계층적으로 가져오기
+        comments = Comment.objects.filter(post_id=post_id, parent__isnull=True).prefetch_related('replies')  # 댓글만 필터링하고 대댓글은 replies로 가져옴
+
+        return comments
 
     @swagger_auto_schema(
         operation_summary="댓글 생성",

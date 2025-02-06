@@ -5,3 +5,5 @@ from .comment import CommentSerializer
 from .heart import HeartSerializer
 from .commentHeart import CommentHeartSerializer
 from .neighbor import NeighborSerializer
+from .activity import ActivitySerializer
+from .news import NewsSerializer

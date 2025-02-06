@@ -27,6 +27,8 @@ from main.views.comment import CommentListView, CommentDetailView
 from main.views.heart import ToggleHeartView, PostHeartUsersView, PostHeartCountView
 from main.views.commentHeart import ToggleCommentHeartView, CommentHeartCountView
 from main.views.neighbor import NeighborView,NeighborAcceptView,NeighborRejectView,NeighborRequestListView,PublicNeighborListView
+from main.views.news import MyNewsView
+from main.views.activity import MyActivityView
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.permissions import AllowAny
@@ -50,6 +52,10 @@ urlpatterns = [
     # ✅ 내 프로필 관련 API
     path('profile/me/', ProfileDetailView.as_view(), name='profile-me'),  # 내 프로필 조회, 수정, 삭제
     path('profile/urlname/', ProfileUrlnameUpdateView.as_view(), name='profile-urlname-update'),  # urlname 변경 (한 번만 가능)
+
+    # 내 소식 및 내 활동 관련 API
+    path('api/news/', MyNewsView.as_view(), name='my-news'),  # 내 소식
+    path('api/activity/', MyActivityView.as_view(), name='my-activity'),  # 내 활동
 
     # ✅ 타인 프로필 관련 API
     path('profile/<str:user_id>/', ProfilePublicView.as_view(), name='profile-public'),
@@ -89,7 +95,7 @@ urlpatterns = [
     path('posts/<int:post_id>/comments/', CommentListView.as_view(), name='comment-list'),
     path('posts/<int:post_id>/comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),
 
-    # ✅ 공감(좋아요) 관련 API (urlname 추가)
+    # ✅ 공감(좋아요) 관련 API
 
     # 게시글 좋아요 추가/삭제
     path('posts/<int:post_id>/heart/', ToggleHeartView.as_view(), name='toggle-heart'),
@@ -98,13 +104,14 @@ urlpatterns = [
     # 게시글 좋아요 개수 조회
     path('posts/<int:post_id>/heart/count/', PostHeartCountView.as_view(), name='post-heart-count'),
 
-    # 댓글/대댓글 좋아요 추가/삭제 (`urlname` 포함)
+    # 댓글/대댓글 좋아요 추가/삭제
     path('posts/<int:post_id>/comments/<int:comment_id>/heart/', ToggleCommentHeartView.as_view(),
          name='toggle-comment-heart'),
-    # 댓글/대댓글 좋아요 개수 조회 (`urlname` 포함)
+    # 댓글/대댓글 좋아요 개수 조회
     path('posts/<int:post_id>/comments/<int:comment_id>/heart/count/', CommentHeartCountView.as_view(),
          name='comment-heart-count'),
     # Swagger 관련 경로 (drf-yasg 사용)
+    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),  # ReDoc UI 추가
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 

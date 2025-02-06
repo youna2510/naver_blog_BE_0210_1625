@@ -13,6 +13,7 @@ class Comment(models.Model):
     is_post_author = models.BooleanField(default=False)  # ✅ 게시글 작성자인지 여부 저장
     like_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)  # 새로 추가된 필드
 
     def save(self, *args, **kwargs):
         """ ✅ 게시글 작성자 여부 자동 설정 """

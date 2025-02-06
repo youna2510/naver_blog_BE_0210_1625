@@ -273,16 +273,14 @@ class PostMyDetailView(RetrieveAPIView):
 
     swagger_fake_view = True  # Swagger 문서 생성을 위한 가짜 뷰 추가
 
-    def get_queryset(self):
+    def get_object(self):
         user = self.request.user
-        pk = self.kwargs.get('pk')  # 'pk'를 안전하게 가져오기
+        pk = self.kwargs.get('pk')
 
         if pk is None:
-            # 'pk'가 없을 경우 적절한 처리
-            return Post.objects.none()  # 빈 쿼리셋 반환
+            raise NotFound("게시물 ID가 필요합니다.")
 
-        # 로그인된 유저가 작성한 게시물만 조회
-        return Post.objects.filter(author=user, pk=pk, is_complete=True)
+        return get_object_or_404(Post, author=user, pk=pk, is_complete=True)
 
     @swagger_auto_schema(
         operation_summary="내가 작성한 게시물 상세 조회",
@@ -302,8 +300,8 @@ class PostMyDetailView(RetrieveAPIView):
         """
         GET 메서드로 게시물의 상세 정보를 조회하는 로직
         """
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=False)
+        instance = self.get_object()  # QuerySet이 아닌 단일 객체 반환
+        serializer = self.get_serializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class PostMutualView(ListAPIView):

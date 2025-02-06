@@ -84,7 +84,7 @@ urlpatterns = [
     path('posts/<int:pk>/', PostDetailView.as_view(), name='post-detail'),  # 타인 게시물 상세 조회 (GET)
 
     #서로 이웃 새글 API
-    path('post/mutual/', PostMutualView.as_view(), name='post-mutual'),
+    path('posts/mutual/', PostMutualView.as_view(), name='post-mutual'),
 
     #임시 저장된 게시물 관련 API
     path('posts/drafts/', DraftPostListView.as_view(), name='draft_post_list'),  # 임시 저장된 게시물 목록 조회

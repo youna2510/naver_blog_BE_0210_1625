@@ -27,8 +27,8 @@ from main.views.comment import CommentListView, CommentDetailView
 from main.views.heart import ToggleHeartView, PostHeartUsersView, PostHeartCountView
 from main.views.commentHeart import ToggleCommentHeartView, CommentHeartCountView
 from main.views.neighbor import NeighborView,NeighborAcceptView,NeighborRejectView,NeighborRequestListView,PublicNeighborListView
-from main.views.news import MyNewsView
-from main.views.activity import MyActivityView
+from main.views.news import MyNewsListView
+from main.views.activity import MyActivityListView
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.permissions import AllowAny
@@ -48,22 +48,21 @@ urlpatterns = [
 
     # ✅ 회원가입 API
     path('signup/', SignupView.as_view(), name='signup'),
+    # ✅ 로그인 및 로그아웃 API
+    path('login/', LoginView.as_view(), name='login'),
+    path('logout/', LogoutView.as_view(), name='logout'),
 
     # ✅ 내 프로필 관련 API
     path('profile/me/', ProfileDetailView.as_view(), name='profile-me'),  # 내 프로필 조회, 수정, 삭제
     path('profile/urlname/', ProfileUrlnameUpdateView.as_view(), name='profile-urlname-update'),  # urlname 변경 (한 번만 가능)
 
     # 내 소식 및 내 활동 관련 API
-    path('api/news/', MyNewsView.as_view(), name='my-news'),  # 내 소식
-    path('api/activity/', MyActivityView.as_view(), name='my-activity'),  # 내 활동
+    path('news/list/', MyNewsListView.as_view(), name='my-news-list'), # 내 소식
+    path('activity/list/', MyActivityListView.as_view(), name='my-activity-list'), # 내 활동
 
     # ✅ 타인 프로필 관련 API
     path('profile/<str:user_id>/', ProfilePublicView.as_view(), name='profile-public'),
     path('profile/<str:user_id>/neighbors/', PublicNeighborListView.as_view(), name='neighbor-list'),
-
-    # ✅ 로그인 및 로그아웃 API
-    path('login/', LoginView.as_view(), name='login'),
-    path('logout/', LogoutView.as_view(), name='logout'),
 
     # ✅ 서로이웃 관련 API
     path('neighbors/<str:to_user_id>/', NeighborView.as_view(), name='neighbor-request'),

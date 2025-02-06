@@ -7,5 +7,5 @@ from .comment import CommentListView,CommentDetailView
 from .heart import ToggleHeartView, PostHeartUsersView,PostHeartCountView
 from .commentHeart import ToggleCommentHeartView,CommentHeartCountView
 from .neighbor import NeighborView,NeighborAcceptView,NeighborRejectView,NeighborRequestListView,PublicNeighborListView
-from .activity import MyActivityView
-from .news import MyNewsView
+from .activity import MyActivityListView
+from .news import MyNewsListView

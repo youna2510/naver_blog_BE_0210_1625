@@ -65,6 +65,7 @@ class Post(models.Model):
     like_count = models.PositiveIntegerField(default=0)  # ✅ 하트 개수 저장
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_read = models.BooleanField(default=False)  # 읽음 상태 필드 추가
 
     def save(self, *args, **kwargs):
         """ subject 값에 따라 keyword 자동 설정 """

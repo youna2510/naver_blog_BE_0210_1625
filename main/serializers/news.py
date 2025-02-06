@@ -1,63 +1,47 @@
 from rest_framework import serializers
 from main.models.post import Post
 from main.models.comment import Comment
+from main.models.heart import Heart  # ✅ 게시글 좋아요 추가
 
 class NewsSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    type = serializers.CharField()  # "post_comment", "post_like", "comment_reply", "liked_comment", "liked_reply"
-    content = serializers.CharField(source='content', read_only=True)
+    activity_id = serializers.CharField(read_only=True)  # ✅ `activity_id` 추가
+    type = serializers.CharField()  # "post_comment", "post_like", "comment_reply"
+    content = serializers.CharField(read_only=True)
     created_at = serializers.DateTimeField()
+    is_read = serializers.BooleanField(default=False)
+    is_parent = serializers.BooleanField(read_only=True)  # ✅ 댓글/대댓글 여부 추가
 
     def to_representation(self, instance):
-        if isinstance(instance, Post):
-            if instance.comments.exists():
-                return {
-                    "id": instance.id,
-                    "type": "post_comment",  # 댓글이 달린 경우
-                    "content": instance.comments.first().content,  # 첫 번째 댓글 내용
-                    "created_at": instance.updated_at  # 최신 댓글의 업데이트 시간
-                }
-            elif instance.hearts.exists():
-                return {
-                    "id": instance.id,
-                    "type": "post_like",  # 좋아요가 달린 경우
-                    "content": "좋아요",  # 좋아요는 '좋아요' 텍스트로 표시
-                    "created_at": instance.updated_at
-                }
-        elif isinstance(instance, Comment):
-            if instance.is_parent:
-                # 댓글에 달린 좋아요가 있는 경우 처리
-                if instance.hearts.exists():
-                    return {
-                        "id": instance.id,
-                        "type": "liked_comment",  # 댓글에 달린 좋아요
-                        "content": instance.content,
-                        "created_at": instance.hearts.first().created_at if instance.hearts.exists() else instance.updated_at
-                    }
-                return {
-                    "id": instance.id,
-                    "type": "comment",  # 댓글
-                    "content": instance.content,  # 댓글 내용
-                    "created_at": instance.updated_at  # 댓글의 최신 업데이트 시간
-                }
-            else:
-                # 대댓글에 달린 좋아요가 있는 경우 처리
-                if instance.hearts.exists():
-                    return {
-                        "id": instance.id,
-                        "type": "liked_reply",  # 대댓글에 달린 좋아요
-                        "content": instance.content,
-                        "created_at": instance.hearts.first().created_at if instance.hearts.exists() else instance.updated_at
-                    }
-                return {
-                    "id": instance.id,
-                    "type": "comment_reply",  # 대댓글
-                    "content": instance.content,  # 대댓글 내용
-                    "created_at": instance.updated_at  # 대댓글의 최신 업데이트 시간
-                }
+        user = self.context['request'].user  # ✅ 현재 로그인된 사용자
+        activity_id = None
+        activity_type = None
+        content = None
+        is_parent = None
 
-        return super().to_representation(instance)
+        if isinstance(instance, Comment):
+            if instance.post.author == user:  # ✅ 내가 작성한 게시글에 달린 댓글
+                activity_id = f"comment_{instance.id}"
+                activity_type = "post_comment"
+                content = f"{instance.author.username}님이 '{instance.post.title}' 글에 댓글을 남겼습니다."
+                is_parent = instance.is_parent  # ✅ 댓글/대댓글 여부 저장
 
+            elif instance.parent and instance.parent.author == user.profile:  # ✅ 내가 작성한 댓글에 달린 대댓글
+                activity_id = f"comment_{instance.id}"
+                activity_type = "comment_reply"
+                content = f"{instance.author.username}님이 '{instance.post.title}' 글에 대댓글을 남겼습니다."
+                is_parent = instance.is_parent
 
+        elif isinstance(instance, Heart):
+            if instance.post.author == user:  # ✅ 내가 작성한 게시글에 달린 좋아요
+                activity_id = f"heart_{instance.id}"
+                activity_type = "post_like"
+                content = f"{instance.user.username}님이 '{instance.post.title}' 글을 좋아합니다."
 
-
+        return {
+            "activity_id": activity_id,
+            "type": activity_type,
+            "content": content,
+            "created_at": instance.created_at,
+            "is_read": instance.is_read,
+            "is_parent": is_parent,  # ✅ 추가
+        }

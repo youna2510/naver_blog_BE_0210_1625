@@ -14,6 +14,7 @@ class Comment(models.Model):
     like_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)  # 새로 추가된 필드
+    is_read = models.BooleanField(default=False)  # 읽음 상태 필드 추가
 
     def save(self, *args, **kwargs):
         """ ✅ 게시글 작성자 여부 자동 설정 """

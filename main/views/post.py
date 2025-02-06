@@ -1,4 +1,4 @@
-from rest_framework.generics import CreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, RetrieveAPIView
+from rest_framework.generics import CreateAPIView, ListAPIView, RetrieveAPIView, UpdateAPIView, DestroyAPIView
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -40,12 +40,18 @@ class PostListView(ListAPIView):
         urlname = self.request.query_params.get('urlname', None)
         category = self.request.query_params.get('category', None)
         pk = self.request.query_params.get('pk', None)
+        keyword = self.request.query_params.get('keyword', None)
 
-        # category만 존재할 경우 에러 처리
+        # ✅ category만 존재할 경우 에러 처리
         if category and not (urlname or pk):
             raise ValidationError("카테고리만 입력된 경우는 허용하지 않습니다.")
 
+        # ✅ keyword는 단독으로 사용해야 함
+        if keyword and (urlname or category or pk):
+            raise ValidationError("keyword는 단독으로 사용해야 합니다.")
+
         user = self.request.user
+
         if urlname:
             try:
                 profile = Profile.objects.get(urlname=urlname)
@@ -53,7 +59,14 @@ class PostListView(ListAPIView):
             except Profile.DoesNotExist:
                 return Post.objects.none()
 
-        my_posts = Q(author=user)
+        # ✅ keyword가 주어진 경우, 해당 카테고리의 게시물만 필터링
+        if keyword:
+            if keyword not in dict(Post.KEYWORD_CHOICES):
+                raise ValidationError(f"'{keyword}'은(는) 유효하지 않은 keyword 값입니다.")
+            return Post.objects.filter(keyword=keyword, is_complete=True).exclude(
+                author=user)  # ❌ 본인 게시물 제외
+
+        # ❌ 자신의 게시물(my_posts) 제외
         from_neighbors = list(
             Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True)
         )
@@ -61,14 +74,14 @@ class PostListView(ListAPIView):
             Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True)
         )
         neighbor_ids = set(from_neighbors + to_neighbors)
-        neighbor_ids.discard(user.id)
+        neighbor_ids.discard(user.id)  # ❌ 자신의 ID 제거
 
-        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
-        public_posts = Q(visibility='everyone')
+        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)  # ✅ 서로 이웃의 'mutual' 공개 글
+        public_posts = Q(visibility='everyone')  # ✅ 전체 공개 글
 
         queryset = Post.objects.filter(
-            (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
-        )
+            (public_posts | mutual_neighbor_posts) & Q(is_complete=True)  # ✅ 자신의 글 제외
+        ).exclude(author=user)  # ❌ 본인 게시물 확실하게 제거
 
         if category:
             queryset = queryset.filter(category=category)
@@ -79,10 +92,15 @@ class PostListView(ListAPIView):
         return queryset
 
     @swagger_auto_schema(
+        operation_summary="게시물 목록 조회",
+        operation_description="서로이웃 공개인 글과, 전체 공개 글을 조회할 수 있습니다. 쿼리 파라미터 urlname, category, pk, keyword로 필터링 가능합니다.",
         manual_parameters=[
             openapi.Parameter('urlname', openapi.IN_QUERY, description="조회할 사용자의 고유 ID", required=False, type=openapi.TYPE_STRING),
             openapi.Parameter('category', openapi.IN_QUERY, description="조회할 게시물 카테고리", required=False, type=openapi.TYPE_STRING),
             openapi.Parameter('pk', openapi.IN_QUERY, description="조회할 게시물 ID", required=False, type=openapi.TYPE_INTEGER),
+            openapi.Parameter('keyword', openapi.IN_QUERY, description="조회할 주제 키워드 (단독 사용 가능)",
+                              required=False, type=openapi.TYPE_STRING,
+                              enum=[choice[0] for choice in Post.KEYWORD_CHOICES]),
         ],
         responses={200: PostSerializer(many=True)}
     )
@@ -109,11 +127,11 @@ class PostCreateView(CreateAPIView):
         manual_parameters=[
             openapi.Parameter('title', openapi.IN_FORM, description='게시물 제목', type=openapi.TYPE_STRING, required=True),
             openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING, required=True),
+            openapi.Parameter('subject', openapi.IN_FORM, description='주제 (네이버 제공 소주제)', type=openapi.TYPE_STRING, enum=[choice[0] for choice in Post.SUBJECT_CHOICES], required=False),
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING, enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM, description='작성 상태', type=openapi.TYPE_BOOLEAN, enum=['true', 'false'], required=False),
             openapi.Parameter('texts', openapi.IN_FORM, description='텍스트 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter('fonts', openapi.IN_FORM, description='글씨체 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING,
-                              required=False),
+            openapi.Parameter('fonts', openapi.IN_FORM, description='글씨체 배열 (JSON 형식 문자열)', type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('font_sizes', openapi.IN_FORM, description='글씨 크기 배열 (JSON 형식 문자열)',
                               type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('is_bolds', openapi.IN_FORM, description='글씨 굵기 배열 (JSON 형식 문자열)',
@@ -127,6 +145,7 @@ class PostCreateView(CreateAPIView):
     def post(self, request, *args, **kwargs):
         title = request.data.get('title')
         category = request.data.get('category')
+        subject = request.data.get('subject', '주제 선택 안 함')
         visibility = request.data.get('visibility', 'everyone')
         is_complete = to_boolean(request.data.get('is_complete', False))
 
@@ -154,6 +173,7 @@ class PostCreateView(CreateAPIView):
             author=request.user,
             title=title,
             category=category,
+            subject=subject,
             visibility=visibility,
             is_complete=is_complete
         )
@@ -287,8 +307,9 @@ class PostMyDetailView(RetrieveAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class PostMutualView(ListAPIView):
+
     """
-    서로 이웃(mutual)인 사람들의 최근 1주일 이내 게시물 목록을 조회하는 API
+        최근 1주일 내 작성된 서로 이웃 공개 게시물을 조회
     """
     permission_classes = [IsAuthenticated]
     serializer_class = PostSerializer
@@ -317,8 +338,8 @@ class PostMutualView(ListAPIView):
         return queryset
 
     @swagger_auto_schema(
-        operation_summary="서로 이웃 게시물 목록 조회",
-        operation_description="서로 이웃(mutual)인 사람들의 최근 1주일 이내 게시물 목록을 반환합니다.",
+        operation_summary="서로 이웃 게시물 목록",
+        operation_description="최근 1주일 내 작성된 서로 이웃 공개 게시물을 조회합니다.",
         responses={200: PostSerializer(many=True)}
     )
     def list(self, request, *args, **kwargs):
@@ -326,7 +347,7 @@ class PostMutualView(ListAPIView):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-class PostDetailView(RetrieveUpdateDestroyAPIView):
+class PostDetailView(RetrieveAPIView):
     """
     게시물 상세 조회 뷰
     """
@@ -337,24 +358,25 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        my_posts = Q(author=user)
 
         # ✅ 서로이웃 ID 리스트 가져오기
         from_neighbors = list(
-            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True))
+            Neighbor.objects.filter(from_user=user, status="accepted").values_list('to_user', flat=True)
+        )
         to_neighbors = list(
-            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True))
+            Neighbor.objects.filter(to_user=user, status="accepted").values_list('from_user', flat=True)
+        )
 
         neighbor_ids = set(from_neighbors + to_neighbors)
-        neighbor_ids.discard(user.id)  # 본인 ID 제외
+        neighbor_ids.discard(user.id)  # ❌ 본인 ID 제외
 
-        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
-        public_posts = Q(visibility='everyone')
+        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)  # ✅ 서로 이웃 게시물
+        public_posts = Q(visibility='everyone')  # ✅ 전체 공개 게시물
 
-        # ✅ `is_complete=True`(작성 완료된 게시물)만 필터링
+        # ❌ 자신의 글 제외하고 필터링
         queryset = Post.objects.filter(
-            (public_posts | my_posts | mutual_neighbor_posts) & Q(is_complete=True)
-        )
+            (public_posts | mutual_neighbor_posts) & Q(is_complete=True)
+        ).exclude(author=user)  # ❌ 본인 게시물 제외
 
         return queryset
 
@@ -366,28 +388,7 @@ class PostDetailView(RetrieveUpdateDestroyAPIView):
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
-    @swagger_auto_schema(
-        operation_summary="PUT 요청은 허용되지 않습니다.",
-        operation_description="PUT 요청은 이 API에서 허용되지 않습니다.",
-    )
-    def put(self, request, *args, **kwargs):
-        raise MethodNotAllowed("PUT method is not allowed for this view.")  # PUT 요청에 대한 405 에러 발생
-
-    @swagger_auto_schema(
-        operation_summary="PATCH 요청은 허용되지 않습니다.",
-        operation_description="PATCH 요청은 이 API에서 허용되지 않습니다.",
-    )
-    def patch(self, request, *args, **kwargs):
-        raise MethodNotAllowed("PATCH method is not allowed for this view.")  # PATCH 요청에 대한 405 에러 발생
-
-    @swagger_auto_schema(
-        operation_summary="DELETE 요청은 허용되지 않습니다.",
-        operation_description="DELETE 요청은 이 API에서 허용되지 않습니다.",
-    )
-    def delete(self, request, *args, **kwargs):
-        raise MethodNotAllowed("DELETE method is not allowed for this view.")  # DELETE 요청에 대한 405 에러 발생
-
-class PostManageView(RetrieveUpdateDestroyAPIView):
+class PostManageView(UpdateAPIView, DestroyAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = PostSerializer
     queryset = Post.objects.all()  # ✅ 누락된 queryset 추가
@@ -414,6 +415,8 @@ class PostManageView(RetrieveUpdateDestroyAPIView):
                               required=False),
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING,
                               enum=['everyone', 'mutual', 'me'], required=False),
+            openapi.Parameter('subject', openapi.IN_FORM, description='주제 (네이버 제공 소주제)', type=openapi.TYPE_STRING,
+                              enum=[choice[0] for choice in Post.SUBJECT_CHOICES], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM,
                               description='작성 상태 (true: 작성 완료, false: 임시 저장 → 변경 가능, 단 true → false 변경 불가)',
                               type=openapi.TYPE_BOOLEAN, required=False),
@@ -445,6 +448,9 @@ class PostManageView(RetrieveUpdateDestroyAPIView):
     def patch(self, request, *args, **kwargs):
         instance = self.get_object()
 
+        # ✅ subject 값 검증은 serializer에서 처리되므로 별도 검증 X
+        instance.subject = request.data.get('subject', instance.subject)
+
         # ✅ `is_complete=True`인 게시물은 `False`로 변경할 수 없음
         if "is_complete" in request.data:
             new_is_complete = to_boolean(request.data["is_complete"])  # 🔥 Boolean 변환 적용
@@ -452,11 +458,8 @@ class PostManageView(RetrieveUpdateDestroyAPIView):
                 return Response({"error": "작성 완료된 게시물은 다시 임시 저장 상태로 변경할 수 없습니다."}, status=400)
             instance.is_complete = new_is_complete  # ✅ Boolean 값 저장)
 
-        # ✅ visibility 값 검증 및 업데이트
-        new_visibility = request.data.get('visibility', instance.visibility)
-        if new_visibility not in dict(Post.VISIBILITY_CHOICES):
-            return Response({"error": "잘못된 공개 범위 값입니다."}, status=400)
-        instance.visibility = new_visibility
+        # ✅ visibility 검증도 serializer에서 자동으로 처리됨 → 별도 검증 삭제
+        instance.visibility = request.data.get('visibility', instance.visibility)
 
         # ✅ 기본 필드 업데이트
         instance.title = request.data.get('title', instance.title)
@@ -597,10 +600,6 @@ class PostManageView(RetrieveUpdateDestroyAPIView):
 
         instance.delete()
         return Response(status=204)
-
-
-
-
 
 class DraftPostListView(ListAPIView):
     """

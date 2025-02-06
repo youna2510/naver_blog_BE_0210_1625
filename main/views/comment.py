@@ -1,5 +1,6 @@
 import re
 from rest_framework import generics, status
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
@@ -17,7 +18,7 @@ from django.http import Http404
 User = get_user_model()
 
 
-class CommentListView(generics.ListCreateAPIView):
+class CommentListView(ListCreateAPIView):
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
 
@@ -62,8 +63,49 @@ class CommentListView(generics.ListCreateAPIView):
 
         return Comment.objects.filter(post_id=post_id)
 
+    @swagger_auto_schema(
+        operation_summary="댓글 생성",
+        operation_description="게시글에 댓글을 작성합니다. '서로 이웃 공개' 게시물에는 서로 이웃만 댓글을 달 수 있으며, '나만 보기' 게시물에는 작성자 본인만 댓글을 달 수 있습니다.",
+        request_body=CommentSerializer,
+        responses={
+            201: openapi.Response(description="댓글 작성 성공", schema=CommentSerializer()),
+            400: openapi.Response(description="잘못된 요청"),
+            403: openapi.Response(description="댓글 작성 권한이 없습니다."),
+            404: openapi.Response(description="게시글을 찾을 수 없습니다."),
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        ✅ 댓글 작성 (전체 공개 or 서로 이웃 or '나만 보기' 제한 적용)
+        """
+        post_id = self.kwargs.get('post_id')
+        if not post_id:
+            return Response({"error": "post_id가 없습니다."}, status=400)
 
-class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
+        post = Post.objects.filter(id=post_id).first()
+        if not post:
+            return Response({"error": "게시글을 찾을 수 없습니다."}, status=404)
+
+        user = request.user
+
+        # ✅ '나만 보기' 게시글 → 작성자 본인만 댓글 가능
+        if post.visibility == 'me' and post.author.profile != user.profile:
+            return Response({"error": "이 게시글에는 작성자 본인만 댓글을 작성할 수 있습니다."}, status=403)
+
+        # ✅ '서로 이웃 공개' 게시글 → 서로 이웃인지 체크
+        if post.visibility == 'mutual' and not post.author.profile.neighbors.filter(id=user.profile.id).exists():
+            return Response({"error": "서로 이웃 관계인 사용자만 댓글을 작성할 수 있습니다."}, status=403)
+
+        # ✅ 댓글 저장
+        is_private = request.data.get('is_private', False)
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(author=user.profile, post=post, is_private=is_private)
+            return Response(serializer.data, status=201)
+
+        return Response(serializer.errors, status=400)
+
+class CommentDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
 
@@ -102,6 +144,58 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
             return Comment.objects.none()
 
         return Comment.objects.filter(post_id=post_id)
+
+    @swagger_auto_schema(
+        operation_summary="댓글 수정 (전체 업데이트, PUT)",
+        operation_description="특정 댓글을 전체 수정합니다. 댓글 작성자만 수정 가능합니다.",
+        request_body=CommentSerializer,
+        responses={
+            200: openapi.Response(description="수정 성공", schema=CommentSerializer()),
+            403: openapi.Response(description="수정 권한이 없습니다."),
+            404: openapi.Response(description="댓글을 찾을 수 없습니다."),
+        }
+    )
+    def put(self, request, *args, **kwargs):
+        """
+        ✅ PUT(전체 수정) - 댓글 작성자만 가능
+        """
+        comment = get_object_or_404(Comment, id=self.kwargs['pk'], post_id=self.kwargs.get('post_id'))
+        user = request.user
+
+        if user.profile != comment.author:
+            return Response({"error": "수정할 권한이 없습니다."}, status=403)
+
+        serializer = self.get_serializer(comment, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=200)
+
+    @swagger_auto_schema(
+        operation_summary="댓글 수정 (부분 업데이트, PATCH)",
+        operation_description="특정 댓글을 부분 수정합니다. 댓글 작성자만 수정 가능합니다.",
+        request_body=CommentSerializer,
+        responses={
+            200: openapi.Response(description="수정 성공", schema=CommentSerializer()),
+            403: openapi.Response(description="수정 권한이 없습니다."),
+            404: openapi.Response(description="댓글을 찾을 수 없습니다."),
+        }
+    )
+    def patch(self, request, *args, **kwargs):
+        """
+        ✅ PATCH(부분 수정) - 댓글 작성자만 가능
+        """
+        comment = get_object_or_404(Comment, id=self.kwargs['pk'], post_id=self.kwargs.get('post_id'))
+        user = request.user
+
+        if user.profile != comment.author:
+            return Response({"error": "수정할 권한이 없습니다."}, status=403)
+
+        serializer = self.get_serializer(comment, data=request.data, partial=True)  # ✅ 부분 업데이트 (partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=200)
 
     @swagger_auto_schema(
         operation_summary="댓글 삭제",

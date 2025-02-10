@@ -25,9 +25,16 @@ class SignupView(APIView):
     )
     def post(self, request):
         serializer = SignupSerializer(data=request.data)
+
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "회원가입이 완료되었습니다."}, status=status.HTTP_201_CREATED)
+            return Response({"message": ["회원가입이 정상적으로 완료되었습니다."]}, status=status.HTTP_201_CREATED)
 
-        # 명확한 에러 메시지 반환
-        return Response({"message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        # 오류 메시지 수집
+        error_messages = []
+        for field, error_list in serializer.errors.items():
+            for error in error_list:
+                error_messages.append(f"{error}")
+
+        # 오류 메시지를 배열로 반환
+        return Response({"message": error_messages}, status=status.HTTP_400_BAD_REQUEST)

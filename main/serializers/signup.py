@@ -1,40 +1,18 @@
 from rest_framework import serializers
-from django.contrib.auth import get_user_model
-from django.contrib.auth.hashers import make_password
-
-User = get_user_model()
+from main.models import CustomUser
 
 class SignupSerializer(serializers.ModelSerializer):
-    password_confirm = serializers.CharField(write_only=True)
+    # 'password' 필드를 write-only로 설정하여 패스워드를 클라이언트에게만 전송하도록 설정
+    password = serializers.CharField(write_only=True)
 
     class Meta:
-        model = User
-        fields = ['id', 'password', 'password_confirm']
-        extra_kwargs = {
-            'password': {'write_only': True},
-        }
-
-    def validate(self, data):
-        """ID 중복 여부 및 비밀번호 확인 검증"""
-        errors = {}
-
-        # ID 중복 검사
-        if User.objects.filter(id=data['id']).exists():
-            errors["id"] = "아이디가 중복되었습니다."
-
-        # 비밀번호 확인 검사
-        if data['password'] != data['password_confirm']:
-            errors["password"] = "비밀번호가 다릅니다."
-
-        if errors:
-            raise serializers.ValidationError(errors)
-
-        return data
+        model = CustomUser
+        fields = ['id', 'password', 'groups', 'user_permissions']  # id, password, groups, user_permissions 필드만 포함
 
     def create(self, validated_data):
-        validated_data.pop('password_confirm')  # password_confirm 필드는 저장하지 않음
-        validated_data['password'] = make_password(validated_data['password'])  # 비밀번호 해싱
-        user = User.objects.create(**validated_data)
+        # 패스워드가 포함된 데이터를 받아서 사용자를 생성
+        password = validated_data.pop('password')  # 패스워드 값을 추출
+        user = CustomUser(**validated_data)  # 나머지 데이터로 사용자 객체 생성
+        user.set_password(password)  # 패스워드를 해시 처리
+        user.save()  # 사용자 저장
         return user
-
-

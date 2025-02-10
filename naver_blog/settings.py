@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'django_filters',
     'main',
     'drf_yasg',
+    'corsheaders',
+
 ]
 
 MIDDLEWARE = [
@@ -53,7 +55,12 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
 ]
+
+CORS_ALLOW_ALL_ORIGINS = True  # 모든 요청 허용 (테스트용, 보안 취약)
+
 
 ROOT_URLCONF = 'naver_blog.urls'
 
@@ -84,7 +91,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'naver_blog',
         'USER': 'root',
-        'PASSWORD': '20200129',
+        'PASSWORD': '1234',
         'HOST': 'localhost',
         'PORT': '3306',
     }
@@ -185,3 +192,7 @@ SWAGGER_SETTINGS = {
         'BearerAuth': []
     }],
 }
+
+
+
+

@@ -15,6 +15,7 @@ import shutil
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now, timedelta
+from pickle import FALSE
 
 def to_boolean(value):
     """
@@ -126,7 +127,7 @@ class PostCreateView(CreateAPIView):
         operation_description="게시물을 생성할 때 JSON 데이터와 이미지를 함께 업로드할 수 있습니다.",
         manual_parameters=[
             openapi.Parameter('title', openapi.IN_FORM, description='게시물 제목', type=openapi.TYPE_STRING, required=True),
-            openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING, required=True),
+            openapi.Parameter('category', openapi.IN_FORM, description='카테고리', type=openapi.TYPE_STRING, required=False),
             openapi.Parameter('subject', openapi.IN_FORM, description='주제 (네이버 제공 소주제)', type=openapi.TYPE_STRING, enum=[choice[0] for choice in Post.SUBJECT_CHOICES], required=False),
             openapi.Parameter('visibility', openapi.IN_FORM, description='공개 범위', type=openapi.TYPE_STRING, enum=['everyone', 'mutual', 'me'], required=False),
             openapi.Parameter('is_complete', openapi.IN_FORM, description='작성 상태', type=openapi.TYPE_BOOLEAN, enum=['true', 'false'], required=False),
@@ -166,8 +167,8 @@ class PostCreateView(CreateAPIView):
         is_representative_flags = parse_json_field(request.data.get('is_representative'))
         images = request.FILES.getlist('images', [])
 
-        if not title or not category:
-            return Response({"error": "title과 category는 필수 항목입니다."}, status=400)
+        if not title:  # title만 필수 항목으로 유지
+            return Response({"error": "title은 필수 항목입니다."}, status=400)
 
         post = Post.objects.create(
             author=request.user,
@@ -325,7 +326,8 @@ class PostMutualView(ListAPIView):
         neighbor_ids = set(from_neighbors + to_neighbors)
         neighbor_ids.discard(user.id)
 
-        mutual_neighbor_posts = Q(visibility='mutual', author_id__in=neighbor_ids)
+        mutual_neighbor_posts = Q(author_id__in=neighbor_ids) & (Q(visibility='mutual') | Q(visibility='everyone'))
+
         one_week_ago = now() - timedelta(days=7)
 
         # ✅ 최근 1주일 이내 작성된 서로 이웃의 게시물만 반환

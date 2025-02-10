@@ -35,4 +35,3 @@ class ActivitySerializer(serializers.Serializer):
         }
 
 
-
